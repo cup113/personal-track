@@ -4,8 +4,8 @@
  * Loads `lib/client.js`, plays the module-loader facade, materializes the
  * closure factory with the frozen platform `require` table, then drives the
  * exported `apply` against a recording context. This proves the bundle's
- * contract (wrapper, exports, tab-type and slot registrations) without a
- * browser; only React's actual mounting is left to the GUI.
+ * contract — wrapper, exports, tab type, slot body, injection face, style
+ * injection — without a browser; React's actual mounting is the GUI's job.
  */
 import { strict as assert } from 'node:assert'
 import { readFileSync } from 'node:fs'
@@ -24,7 +24,19 @@ globalThis.window = {
   },
 }
 
-// eslint-disable-next-line no-new-func -- the bundle is a script, exactly as the shell runs it.
+/** The bare minimum DOM the board's style injection touches. */
+const appended = []
+globalThis.document = {
+  querySelector: () => null,
+  createElement: () => ({ setAttribute() {}, textContent: '' }),
+  head: {
+    append(node) {
+      appended.push(node)
+    },
+  },
+}
+
+// The bundle is a script, exactly as the shell runs it.
 new Function(code)()
 
 assert.ok(loaded, 'the bundle must call window.__ModuleLoader__.load')
@@ -64,6 +76,7 @@ const ctx = {
 exports_.apply(ctx)
 
 assert.equal(seen.effects, 2, 'apply registers two effects (tab type + body)')
+assert.equal(appended.length, 1, 'apply injects the stylesheet exactly once')
 
 const [tabType] = seen.tabTypes
 assert.ok(tabType, 'a tab type is registered')
@@ -80,4 +93,11 @@ assert.equal(body.spec.name, 'sidebar.right.pane.tab')
 assert.equal(body.spec.key, 'personal-track-board')
 assert.equal(typeof body.component, 'function', 'the body is a component')
 
-console.log('client bundle ✓  wrapper, exports, tab type and slot body all verified')
+// The board receives its commands through the registration's injection face.
+assert.equal(typeof body.spec.inject, 'function', 'the body declares an injection face')
+const face = body.spec.inject()
+for (const method of ['clock', 'state', 'check', 'uncheck', 'setMeal', 'clearMeal', 'setStock', 'wash']) {
+  assert.equal(typeof face.client[method], 'function', `the face exposes ${method}()`)
+}
+
+console.log('client bundle ✓  wrapper, exports, tab type, slot body, injection face and styles verified')

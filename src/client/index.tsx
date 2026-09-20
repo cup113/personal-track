@@ -1,15 +1,17 @@
 /**
- * personal-track — browser half (M0 skeleton).
+ * personal-track — browser half.
  *
- * Registers the `habit-board` page type and its right-sidebar tab body. The
- * board itself lands in M2; M0 only proves the bundle, the tab registry and the
- * slot registration work end to end.
+ * Registers the `habit-board` page type with its guide entry, and mounts the
+ * board as that page type's tab body. The board talks to the host through the
+ * command face injected into the registration, never through `ctx`.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { JSX } from 'react'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
+import { createHabitClient } from './api.ts'
+import { BoardBody } from './board/BoardBody.tsx'
+import { ensureBoardStyles } from './styles.ts'
 
 /** Services that must be live before `apply` runs. */
 export const inject = ['slots', 'sidebarRightTabs']
@@ -22,6 +24,9 @@ const BOARD_KIND = 'habit-board'
 
 /** Register the board tab type plus its body. */
 export function apply(ctx: Context): void {
+  ensureBoardStyles()
+  const client = createHabitClient()
+
   ctx.effect(() => ctx.sidebarRightTabs.register({
     id: BOARD_ID,
     kind: BOARD_KIND,
@@ -34,12 +39,7 @@ export function apply(ctx: Context): void {
   }), 'personal-track: board tab type')
 
   ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register(
-    { name: 'sidebar.right.pane.tab', key: BOARD_ID },
+    { name: 'sidebar.right.pane.tab', key: BOARD_ID, inject: () => ({ client }) },
     BoardBody,
   )), 'personal-track: board body')
-}
-
-/** M0 placeholder body: replaced by the real kanban in M2. */
-function BoardBody(): JSX.Element {
-  return <div style={{ padding: 12, opacity: 0.8 }}>personal-track · M0</div>
 }

@@ -176,11 +176,17 @@ export function createApiHandler(deps: ApiDeps): WebRoute['handler'] {
         const body = parse(z.object({
           date: DATE.optional(),
           habit: z.enum(['wash', 'shower']),
+          /** Which recorded check to drop; defaults to the most recent one. */
+          index: z.coerce.number().int().nonnegative().optional(),
         }), query, 'check')
         const date = dateOf(body, today())
-        await store.mutateDay(date, day => (body.habit === 'wash'
-          ? { ...day, washes: { times: day.washes.times.slice(0, -1) } }
-          : { ...day, shower: { at: null } }))
+        await store.mutateDay(date, (day) => {
+          if (body.habit !== 'wash') return { ...day, shower: { at: null } }
+          const times = [...day.washes.times]
+          const index = body.index ?? times.length - 1
+          if (index >= 0 && index < times.length) times.splice(index, 1)
+          return { ...day, washes: { times } }
+        })
         sendJson(res, 200, stateFor(date))
         return
       }
