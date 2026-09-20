@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import { HabitApiError, type HabitClient } from '../api.ts'
 import type { ClockView, RunPoint, StatsView } from '../types.ts'
+import { DataCard } from './data.tsx'
 import { shiftKey } from './format.ts'
 import { Pills, Tile, TileHead } from './tile.tsx'
 
@@ -32,9 +33,6 @@ const HABIT_LABELS: Record<string, string> = {
   vocab: '背单词',
   duolingo: '多邻国',
 }
-
-/** Display names for the meal slots the host reports. */
-const SLOT_LABELS: Record<string, string> = { breakfast: '早饭', lunch: '午饭', dinner: '晚饭' }
 
 /** Display names for a media status. */
 const MEDIA_STATUS: Record<string, string> = { active: '在列', done: '完成', dropped: '弃' }
@@ -180,6 +178,8 @@ export function StatsPanel({ client }: StatsPanelProps): JSX.Element {
   const [stats, setStats] = useState<StatsView | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  /** Bumped after an import, so the range is re-read from the new records. */
+  const [reload, setReload] = useState(0)
 
   const today = clock?.today ?? ''
   const range = useMemo(() => {
@@ -211,7 +211,7 @@ export function StatsPanel({ client }: StatsPanelProps): JSX.Element {
     return () => {
       alive = false
     }
-  }, [client, range])
+  }, [client, range, reload])
 
   const registryRows: readonly (readonly [string, string])[] = stats === null ? [] : [
     ['完成（区间）', `${stats.media.finished}`],
@@ -294,14 +294,8 @@ export function StatsPanel({ client }: StatsPanelProps): JSX.Element {
                 ['总件数', `${stats.washing.pieces}`],
               ]} />
               <MetricCard title="三餐" rows={[
-                ...stats.meals.slots.map(slot => [
-                  `${SLOT_LABELS[slot.slot] ?? slot.slot}打卡`,
-                  `${slot.days} 天（${Math.round(slot.ratio * 100)}%）`,
-                ] as const),
+                ['早饭打卡', `${stats.meals.breakfast.days} 天（${Math.round(stats.meals.breakfast.ratio * 100)}%）`],
                 ['总花费', `¥${stats.meals.spend}`],
-                ...stats.meals.spendBySlot
-                  .filter(slot => slot.amount > 0)
-                  .map(slot => [`${SLOT_LABELS[slot.slot] ?? slot.slot}花费`, `¥${slot.amount}`] as const),
               ]} />
             </div>
 
@@ -336,6 +330,8 @@ export function StatsPanel({ client }: StatsPanelProps): JSX.Element {
                 )}
               </Tile>
             </div>
+
+            <DataCard client={client} onImported={() => setReload(value => value + 1)} />
           </>
         )}
     </div>

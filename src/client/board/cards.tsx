@@ -1,13 +1,13 @@
 /**
- * The daily cards: counted checks, the one-a-day toggle, the laundry counter
- * and the three meal slots. Each is a tile; nothing here talks to the API.
+ * The daily cards: counted checks, the laundry counter and the three meal
+ * slots. Each is a tile; nothing here talks to the API.
  */
 import { useState, type JSX } from 'react'
 import type { MealSlot } from '../api.ts'
 import type { DayRecord } from '../types.ts'
 import { FieldForm, type FieldSpec } from './fields.tsx'
 import { TIME_FIELD, moneyOf, timeOf, timeValueOf } from './format.ts'
-import { IconButton, Tile, TileHead, TimeChip, TimeEditor } from './tile.tsx'
+import { AddSlot, IconButton, Tile, TileHead, TimeChip, TimeEditor } from './tile.tsx'
 
 /** Fields one meal slot exposes when edited. */
 const MEAL_EDIT_FIELDS: readonly FieldSpec[] = [
@@ -15,7 +15,7 @@ const MEAL_EDIT_FIELDS: readonly FieldSpec[] = [
   { name: 'price', label: '价格', kind: 'number', step: 0.5, min: 0, optional: true, placeholder: '可留空' },
 ]
 
-/** Props for a counted check tile (washing up, twice a day). */
+/** Props for a counted check tile (washing up twice, showering once). */
 export interface CheckTileProps {
   readonly label: string
   readonly times: readonly string[]
@@ -26,7 +26,13 @@ export interface CheckTileProps {
   readonly onRemove: (index: number) => void
 }
 
-/** A check habit whose entries are individually retimable and removable. */
+/**
+ * A check habit whose entries are individually retimable and removable.
+ *
+ * The tile shows one slot per entry plus — while the day is not full — a single
+ * dashed `＋` for the next one: nothing when empty but the invitation, and
+ * nothing to press once the day is done.
+ */
 export function CheckTile({ label, times, max, busy, onCheck, onEdit, onRemove }: CheckTileProps): JSX.Element {
   const [editing, setEditing] = useState<number | null>(null)
   const done = times.length >= max
@@ -34,23 +40,18 @@ export function CheckTile({ label, times, max, busy, onCheck, onEdit, onRemove }
     <Tile tone={done ? 'done' : 'idle'}>
       <TileHead title={label} meta={`${times.length}/${max}`} />
       {editing === null ? (
-        <>
-          <div className="pt-chips">
-            {times.length === 0 ? <span className="pt-muted">未打卡</span> : null}
-            {times.map((instant, index) => (
-              <TimeChip
-                key={`${instant}:${String(index)}`}
-                instant={instant}
-                busy={busy}
-                onEdit={() => setEditing(index)}
-                onRemove={() => onRemove(index)}
-              />
-            ))}
-          </div>
-          <div className="pt-tile-foot">
-            <button type="button" className="pt-primary" disabled={busy || done} onClick={onCheck}>打卡</button>
-          </div>
-        </>
+        <div className="pt-chips">
+          {times.map((instant, index) => (
+            <TimeChip
+              key={`${instant}:${String(index)}`}
+              instant={instant}
+              busy={busy}
+              onEdit={() => setEditing(index)}
+              onRemove={() => onRemove(index)}
+            />
+          ))}
+          {done ? null : <AddSlot label={`${label}打卡`} disabled={busy} onClick={onCheck} />}
+        </div>
       ) : (
         <TimeEditor
           instant={times[editing]}
@@ -61,47 +62,6 @@ export function CheckTile({ label, times, max, busy, onCheck, onEdit, onRemove }
           }}
           onCancel={() => setEditing(null)}
         />
-      )}
-    </Tile>
-  )
-}
-
-/** Props for the shower tile. */
-export interface ShowerTileProps {
-  readonly at: string | null
-  readonly busy: boolean
-  readonly onCheck: () => void
-  readonly onUndo: () => void
-  readonly onEdit: (time: string) => void
-}
-
-/** A check habit capped at one entry a day. */
-export function ShowerTile({ at, busy, onCheck, onUndo, onEdit }: ShowerTileProps): JSX.Element {
-  const [editing, setEditing] = useState(false)
-  return (
-    <Tile tone={at === null ? 'idle' : 'done'}>
-      <TileHead title="洗澡" meta={at === null ? '未打卡' : '已完成'} />
-      {editing ? (
-        <TimeEditor
-          instant={at}
-          busy={busy}
-          onSubmit={(time) => {
-            onEdit(time)
-            setEditing(false)
-          }}
-          onCancel={() => setEditing(false)}
-        />
-      ) : (
-        <>
-          <div className="pt-chips">
-            {at === null
-              ? <span className="pt-muted">每天至多一次</span>
-              : <TimeChip instant={at} busy={busy} onEdit={() => setEditing(true)} onRemove={onUndo} />}
-          </div>
-          <div className="pt-tile-foot">
-            <button type="button" className="pt-primary" disabled={busy || at !== null} onClick={onCheck}>打卡</button>
-          </div>
-        </>
       )}
     </Tile>
   )
@@ -191,7 +151,7 @@ export interface MealBoardProps {
   readonly onClear: (slot: MealSlot) => void
 }
 
-/** Three compact cells: tap to stamp the time now, ✎ to retime or price it. */
+/** Three compact rows: tap `＋` to stamp the time now, ✎ to retime or price it. */
 export function MealBoard({ meals, busy, onRecord, onClear }: MealBoardProps): JSX.Element {
   const [editing, setEditing] = useState<MealSlot | null>(null)
   const recorded = MEAL_SLOTS.filter(({ slot }) => meals[slot] !== undefined).length
@@ -200,24 +160,21 @@ export function MealBoard({ meals, busy, onRecord, onClear }: MealBoardProps): J
     <Tile span={2} tone={recorded === MEAL_SLOTS.length ? 'done' : 'idle'}>
       <TileHead title="三餐" meta={`${recorded}/3`} />
       {editing === null ? (
-        <div className="pt-cells">
+        <div className="pt-meals">
           {MEAL_SLOTS.map(({ slot, label }) => {
             const meal = meals[slot]
             return (
-              <div key={slot} className={meal === undefined ? 'pt-cell' : 'pt-cell pt-cell-done'}>
-                <span className="pt-cell-label">{label}</span>
-                <span className="pt-cell-value">{meal === undefined ? '——' : timeOf(meal.at)}</span>
-                <span className="pt-cell-sub">{meal?.price === undefined ? '' : moneyOf(meal.price)}</span>
-                <span className="pt-cell-actions">
+              <div key={slot} className={meal === undefined ? 'pt-meal' : 'pt-meal pt-meal-done'}>
+                <span className="pt-meal-label">{label}</span>
+                {meal === undefined ? null : (
+                  <>
+                    <span className="pt-meal-time">{timeOf(meal.at)}</span>
+                    {meal.price === undefined ? null : <span className="pt-meal-price">{moneyOf(meal.price)}</span>}
+                  </>
+                )}
+                <span className="pt-meal-actions">
                   {meal === undefined
-                    ? (
-                      <button
-                        type="button"
-                        className="pt-primary pt-small"
-                        disabled={busy}
-                        onClick={() => onRecord(slot, {})}
-                      >打卡</button>
-                    )
+                    ? <AddSlot label={`记录${label}`} disabled={busy} onClick={() => onRecord(slot, {})} />
                     : (
                       <>
                         <IconButton label="修改时间与价格" disabled={busy} onClick={() => setEditing(slot)}>✎</IconButton>

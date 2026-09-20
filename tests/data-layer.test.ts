@@ -212,6 +212,38 @@ check('progress accumulates across sessions and never exceeds 100%', () => {
   assert.equal(progress.surplusNew, 16)
   assert.equal(progress.surplusReview, 1)
 })
+check('a review word counts a fifth of a new word', () => {
+  // 10 new + 50 review are worth the same: 10 + 50/5 = 20 new-word-equivalents.
+  const target = { new: 10, review: 50 }
+  const study = (newWords: number, review: number) => vocabProgress(day({
+    vocab: { target, sessions: [{ id: 'v1', at: 'x', new: newWords, review, minutes: 20 }] },
+  }))
+  const newOnly = study(10, 0)
+  const reviewOnly = study(0, 50)
+  const both = study(10, 50)
+  assert.equal(newOnly?.ratio, 0.5)
+  assert.equal(reviewOnly?.ratio, 0.5)
+  assert.equal(newOnly?.met, false)
+  assert.equal(reviewOnly?.met, false)
+  assert.equal(both?.ratio, 1)
+  assert.equal(both?.met, true)
+})
+check('the weighted comparison is exact for awkward review counts', () => {
+  // Fifths are integers, so 7 review words against a 7-review target is met
+  // rather than drifting below it on binary rounding.
+  const progress = vocabProgress(day({
+    vocab: { target: { new: 0, review: 7 }, sessions: [{ id: 'v1', at: 'x', new: 0, review: 7, minutes: 9 }] },
+  }))
+  assert.equal(progress?.ratio, 1)
+  assert.equal(progress?.met, true)
+})
+check('surplus stays a raw word count, not a weighted one', () => {
+  const progress = vocabProgress(day({
+    vocab: { target: { new: 10, review: 10 }, sessions: [{ id: 'v1', at: 'x', new: 12, review: 30, minutes: 20 }] },
+  }))
+  assert.equal(progress?.surplusNew, 2)
+  assert.equal(progress?.surplusReview, 20)
+})
 check('partial progress reports a capped-down ratio', () => {
   const progress = vocabProgress(day({
     vocab: { target: { new: 10, review: 10 }, sessions: [{ id: 'v1', at: 'x', new: 6, review: 6, minutes: 20 }] },

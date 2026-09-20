@@ -36,6 +36,10 @@ export interface VocabCardProps {
 /**
  * Vocabulary: progress against today's snapshot, an editor for that snapshot,
  * and the sessions the progress is derived from.
+ *
+ * The head reports the *weighted* percentage, because that is the only figure
+ * that means "the target is met": a review word counts a fifth of a new word
+ * (see the host's `vocabProgress`). The two raw counts stay visible beside it.
  */
 export function VocabCard({
   target, progress, sessions, busy, onTarget, onAdd, onPatch, onRemove,
@@ -43,12 +47,14 @@ export function VocabCard({
   const [editing, setEditing] = useState(false)
   const surplus = progress.surplusNew + progress.surplusReview
   const percent = Math.round(progress.ratio * 100)
-  const done = progress.doneNew + progress.doneReview
-  const goal = progress.targetNew + progress.targetReview
 
   return (
     <Tile span={2} tone={progress.met ? 'done' : 'idle'}>
-      <TileHead title="背单词" meta={`${done}/${goal}`}>
+      <TileHead
+        title="背单词"
+        meta={`${percent}%`}
+        metaTitle="复习词按新词的 1/5 计入进度"
+      >
         <IconButton label="改这一天的目标" disabled={busy} onClick={() => setEditing(value => !value)}>✎</IconButton>
       </TileHead>
 

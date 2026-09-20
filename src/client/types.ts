@@ -157,6 +157,41 @@ export interface TaskEntry {
   readonly overdue: boolean
 }
 
+/** A task as a backup file carries it: the stored record, without the states
+ *  the host derives for the live view. */
+export type TaskRecordWire = Omit<TaskEntry, 'state' | 'overdue'>
+
+/** How an import treats what is already stored. */
+export type ImportMode = 'merge' | 'replace'
+
+/**
+ * One backup file: stored facts only. Nothing derived (cells, ratios, streaks,
+ * overdue flags) is in here, so a restored file cannot contradict itself.
+ */
+export interface BackupBundle {
+  readonly format: string
+  readonly version: number
+  readonly exportedAt: string
+  readonly days: readonly DayRecord[]
+  readonly counters: Readonly<Record<string, Stock>>
+  readonly media: readonly MediaEntry[]
+  readonly tasks: readonly TaskRecordWire[]
+}
+
+/** What one import did. */
+export interface ImportReport {
+  readonly mode: ImportMode
+  readonly days: number
+  readonly media: number
+  readonly tasks: number
+  readonly counters: number
+  /** Records dropped because `replace` cleared keys the file did not carry. */
+  readonly removed: number
+}
+
+/** The state slice an import answers with. */
+export type ImportResult = StateView & { readonly ok: true; readonly report: ImportReport }
+
 /** The full state slice every read and mutation answers with. */
 export interface StateView {
   readonly day: DayView
@@ -251,9 +286,9 @@ export interface StatsView {
   }
   readonly washing: { readonly count: number; readonly pieces: number }
   readonly meals: {
-    readonly slots: readonly { readonly slot: string; readonly days: number; readonly ratio: number }[]
+    /** Only breakfast is projected: the panel keeps this card short. */
+    readonly breakfast: { readonly days: number; readonly ratio: number }
     readonly spend: number
-    readonly spendBySlot: readonly { readonly slot: string; readonly amount: number }[]
   }
   readonly media: {
     readonly finished: number

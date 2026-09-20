@@ -5,7 +5,16 @@
  * to re-read after a write. Failures arrive as `HabitApiError`, carrying the
  * host's own code so the UI can say something specific.
  */
-import type { ClockView, MediaEntry, StateView, StatsView, TaskEntry } from './types.ts'
+import type {
+  BackupBundle,
+  ClockView,
+  ImportMode,
+  ImportResult,
+  MediaEntry,
+  StateView,
+  StatsView,
+  TaskEntry,
+} from './types.ts'
 
 /** The API prefix this plugin owns on the GUI host. */
 const BASE = '/habit/api'
@@ -81,6 +90,10 @@ export interface HabitClient {
   removeTask(id: string): Promise<TaskResult>
   /** Range aggregates, computed on the host. */
   stats(from: string, to: string): Promise<StatsView>
+  /** The whole domain as one portable document. */
+  exportAll(): Promise<BackupBundle>
+  /** Validate and apply a backup document; `replace` also drops what it omits. */
+  importAll(mode: ImportMode, backup: unknown): Promise<ImportResult>
 }
 
 /** Fields a new media entry carries. */
@@ -240,5 +253,11 @@ export function createHabitClient(): HabitClient {
     patchTask: (id, patch) => request<TaskResult>('/tasks', body('PATCH', { id, patch })),
     removeTask: id => request<TaskResult>(`/tasks${query({ id })}`, { method: 'DELETE' }),
     stats: (from, to) => request<StatsView>(`/stats${query({ from, to })}`),
+    exportAll: async () => {
+      const value = await request<{ ok: true; backup: BackupBundle }>('/backup')
+      if (value.backup === undefined) staleHost()
+      return value.backup
+    },
+    importAll: (mode, backup) => request<ImportResult>('/backup', body('POST', { mode, backup })),
   }
 }

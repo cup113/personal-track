@@ -8,6 +8,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-storage-domain'
 import { API_PREFIX, createApiHandler } from './api.ts'
+import { createBackup } from './backup.ts'
 import { Config, boundaryOf } from './config.ts'
 import { habitDomainSpec } from './domain.ts'
 import { createHabitStore } from './store.ts'
@@ -27,6 +28,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
 
   const handler = createApiHandler({
     store: createHabitStore(domain, config),
+    backup: createBackup(domain),
     boundary: boundaryOf(config),
     config,
     now: () => new Date(),

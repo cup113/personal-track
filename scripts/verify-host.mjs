@@ -25,11 +25,11 @@ const DATE = '2026-09-16'
 await rm(ROOT, { recursive: true, force: true })
 await mkdir(ROOT, { recursive: true })
 
-/** Mount the whole stack; returns a request helper plus a teardown. */
-async function mount() {
+/** Mount the whole stack over `root`; returns a request helper plus a teardown. */
+async function mount(root = ROOT) {
   const ctx = new Context()
   await ctx.plugin(Storage)
-  await ctx.plugin(storageJson, { root: ROOT })
+  await ctx.plugin(storageJson, { root })
   await ctx.plugin(storageDomain, { backend: 'json' })
   const server = await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 })
   const app = await ctx.plugin(plugin, { dayStartHour: 4 })
@@ -286,7 +286,8 @@ assert.equal(dayStats.equipment.byName[0].name, '划船机')
 assert.equal(dayStats.washing.count, 1)
 assert.equal(dayStats.washing.pieces, 3)
 assert.equal(dayStats.meals.spend, 12.5)
-assert.equal(dayStats.meals.slots.find(slot => slot.slot === 'lunch').days, 1)
+assert.equal(dayStats.meals.breakfast.days, 0, 'the meal projection carries breakfast alone')
+assert.equal(dayStats.meals.breakfast.ratio, 0)
 assert.equal(dayStats.runs.count, 0, 'the running entry was cleared')
 assert.deepEqual(dayStats.runs.points, [])
 
@@ -354,6 +355,80 @@ assert.equal(
 )
 await restarted.stop()
 console.log('restart ✓  (everything re-read from the medium)')
+
+// --- backup: export, then restore the file into a fresh root ------------------
+const BACKUP_ROOT = join('.tmp', 'verify-host-backup')
+await rm(BACKUP_ROOT, { recursive: true, force: true })
+await mkdir(BACKUP_ROOT, { recursive: true })
+
+const source = await mount()
+const backup = (await source.call('GET', '/backup')).body.backup
+assert.equal(backup.format, 'personal-track/backup')
+assert.equal(backup.version, 1)
+assert.equal(backup.days.length, 1, 'the saved day is in the backup')
+assert.equal(backup.days[0].date, DATE)
+assert.equal(backup.tasks.length, 2)
+assert.equal(backup.media.length, 0, 'the hard-deleted book is not in the backup')
+assert.equal(backup.counters.laundry.pending, 2, 'the laundry stock travels with the file')
+// The file holds facts only — the derived-state rule reaches the file format.
+assert.equal('cells' in backup.days[0], false, 'no derived cell list in a backup')
+assert.equal('progress' in backup.days[0], false, 'no derived progress in a backup')
+assert.equal(backup.days[0].vocab.ratio, undefined, 'no weighted ratio in a backup')
+assert.equal(backup.tasks[0].state, undefined, 'task state is derived, never stored')
+await source.stop()
+
+// Restoring into an empty root proves the file alone rebuilds the state.
+const restored = await mount(BACKUP_ROOT)
+const applied = await restored.call('POST', '/backup', { mode: 'replace', backup })
+assert.equal(applied.status, 200)
+assert.equal(applied.body.report.days, 1)
+assert.equal(applied.body.report.removed, 0, 'an empty root had nothing to replace')
+assert.equal(applied.body.stock.pending, 2, 'the imported stock is live')
+const restoredDay = (await restored.call('GET', `/state?date=${DATE}`)).body
+assert.equal(restoredDay.day.day.washes.times.length, 2)
+assert.equal(restoredDay.day.progress.done, 5, 'every cell is recomputed from the records')
+assert.equal(restoredDay.day.vocab.ratio, 0, 'progress is recomputed, not read from the file')
+assert.deepEqual(restoredDay.day.target, { new: 10, review: 5 }, 'the target snapshot survives')
+assert.equal(restoredDay.tasks.find(task => task.id === lateId)?.state, 'done', 'derived task state comes back')
+
+// A restored day is a normal day: it takes new records and reports them.
+await restored.call('PUT', '/meal', { date: DATE, slot: 'breakfast', price: 3.5 })
+const restoredStats = (await restored.call('GET', `/stats?from=${DATE}&to=${DATE}`)).body
+assert.equal(restoredStats.meals.breakfast.days, 1, 'breakfast is projected once recorded')
+assert.equal(restoredStats.meals.breakfast.ratio, 1)
+assert.equal(restoredStats.meals.spend, 16, 'restored lunch plus the new breakfast')
+
+// `replace` also drops what the file does not carry; `merge` never does.
+await restored.call('POST', '/tasks', { title: '临时任务' })
+const pruned = await restored.call('POST', '/backup', { mode: 'replace', backup })
+assert.equal(pruned.body.report.removed, 1, 'replace cleared the task the file omits')
+assert.equal((await restored.call('GET', '/tasks')).body.tasks.length, 2)
+const merged = await restored.call('POST', '/backup', { mode: 'merge', backup: { ...backup, counters: {} } })
+assert.equal(merged.body.report.removed, 0, 'merge drops nothing')
+assert.equal(merged.body.stock.pending, 2, 'and leaves a counter the file omits alone')
+
+// A file that is not ours is refused whole, and changes nothing.
+const refused = await restored.call('POST', '/backup', { mode: 'merge', backup: { hello: 'world' } })
+assert.equal(refused.status, 400)
+assert.equal(refused.body.error.code, 'habit/bad-backup')
+const corrupted = await restored.call('POST', '/backup', {
+  mode: 'merge',
+  backup: { ...backup, days: [{ ...backup.days[0], washes: { times: 'nope' } }] },
+})
+assert.equal(corrupted.status, 400, 'one bad record fails the whole file')
+assert.equal(corrupted.body.error.code, 'habit/bad-backup')
+assert.equal((await restored.call('GET', '/tasks')).body.tasks.length, 2, 'a refused import wrote nothing')
+const badVersion = await restored.call('POST', '/backup', { mode: 'merge', backup: { ...backup, version: 99 } })
+assert.equal(badVersion.status, 400)
+assert.match(badVersion.body.error.message, /版本/)
+
+// An import really replaces the counter table when the file omits it.
+const noCounter = await restored.call('POST', '/backup', { mode: 'replace', backup: { ...backup, counters: {} } })
+assert.equal(noCounter.body.report.removed, 1, 'the laundry counter was dropped')
+assert.equal(noCounter.body.stock.pending, 0, 'and reads as zero afterwards')
+await restored.stop()
+await rm(BACKUP_ROOT, { recursive: true, force: true })
+console.log('backup ✓  (facts-only file, restore into a fresh root, merge vs replace, bad files refused)')
 
 await rm(ROOT, { recursive: true, force: true })
 console.log('\nhost half ✓  full API round-trip against real storage')

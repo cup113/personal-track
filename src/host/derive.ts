@@ -28,6 +28,17 @@ export interface Cell {
   readonly done: boolean
 }
 
+/**
+ * Weights used when vocabulary progress is computed, in fifths.
+ *
+ * A review word counts a fifth of a new word: the two targets are not
+ * interchangeable effort, and a day that clears 60 reviews has not done the
+ * work of 60 new words. Weights stay integral so the target comparison is
+ * exact — floats would make `done >= target` misfire on values like `3 × 0.2`.
+ */
+const NEW_WEIGHT = 5
+const REVIEW_WEIGHT = 1
+
 /** Vocabulary target progress for one day. */
 export interface VocabProgress {
   readonly doneNew: number
@@ -47,7 +58,12 @@ export interface VocabProgress {
 /** Task lifecycle state, derived from progress. */
 export type TaskState = 'todo' | 'doing' | 'done'
 
-/** Vocabulary progress; the target block is absent until a day has one. */
+/**
+ * Vocabulary progress; the target block is absent until a day has one.
+ *
+ * Progress is weighted (see {@link NEW_WEIGHT}): both the target and what has
+ * been done are counted in fifths, so "100%" still means "the target is met".
+ */
 export function vocabProgress(day: DayRecord | undefined): VocabProgress | undefined {
   const vocab = day?.vocab
   if (vocab === undefined) return undefined
@@ -61,18 +77,20 @@ export function vocabProgress(day: DayRecord | undefined): VocabProgress | undef
   }
   const targetNew = vocab.target.new
   const targetReview = vocab.target.review
-  const target = targetNew + targetReview
-  const done = doneNew + doneReview
+  const targetFifths = targetNew * NEW_WEIGHT + targetReview * REVIEW_WEIGHT
+  const doneFifths = doneNew * NEW_WEIGHT + doneReview * REVIEW_WEIGHT
   return {
     doneNew,
     doneReview,
     targetNew,
     targetReview,
     minutes,
-    ratio: target <= 0 ? (done > 0 ? 1 : 0) : Math.min(1, done / target),
+    ratio: targetFifths <= 0 ? (doneFifths > 0 ? 1 : 0) : Math.min(1, doneFifths / targetFifths),
+    // Surplus stays a raw count: it answers "how many words past the target",
+    // which is a quantity of words, not a weighted amount of work.
     surplusNew: Math.max(0, doneNew - targetNew),
     surplusReview: Math.max(0, doneReview - targetReview),
-    met: target <= 0 ? done > 0 : done >= target,
+    met: targetFifths <= 0 ? doneFifths > 0 : doneFifths >= targetFifths,
   }
 }
 

@@ -44,7 +44,6 @@ const CSS = `
 .pt-primary:hover:not(:disabled) { background: var(--pt-info); }
 .pt-primary:active:not(:disabled) { transform: scale(.97); }
 .pt-primary:disabled { opacity: .4; cursor: default; }
-.pt-small { padding: 2px 7px; font-size: 11px; }
 
 .pt-ghost {
   appearance: none; border: 1px solid var(--pt-line); background: transparent;
@@ -132,6 +131,7 @@ const CSS = `
 .pt-tile-meta + .pt-tile-actions { margin-left: 4px; }
 .pt-tile-actions { display: inline-flex; gap: 3px; margin-left: auto; }
 .pt-tile-foot { display: flex; align-items: center; gap: 6px; }
+.pt-rows { display: flex; flex-direction: column; gap: 5px; }
 
 /* ---- recorded times -------------------------------------------------- */
 .pt-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: 22px; }
@@ -152,18 +152,26 @@ const CSS = `
 .pt-chip-time-remove:hover:not(:disabled) { opacity: 1; background: rgba(220,90,90,.22); }
 .pt-chip-time-remove:disabled { opacity: .3; cursor: default; }
 
-/* ---- meal cells ------------------------------------------------------ */
-.pt-cells { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 6px; }
-.pt-cell {
-  display: flex; flex-direction: column; align-items: center; gap: 3px;
-  padding: 7px 4px; border: 1px solid var(--pt-line); border-radius: 9px;
-  transition: background .12s ease, border-color .12s ease;
+/* ---- the empty slot -------------------------------------------------- */
+.pt-plus {
+  appearance: none; cursor: pointer; font: inherit; font-size: 12px; line-height: 1;
+  min-width: 34px; min-height: 22px; padding: 2px 9px;
+  border: 1px dashed var(--pt-line-strong); border-radius: 7px;
+  background: none; color: inherit; opacity: .7;
+  transition: opacity .12s ease, border-color .12s ease, background .12s ease;
 }
-.pt-cell-done { border-color: var(--pt-accent-line); background: var(--pt-accent-soft); }
-.pt-cell-label { font-size: 11px; opacity: .7; }
-.pt-cell-value { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.pt-cell-sub { font-size: 11px; opacity: .6; min-height: 14px; }
-.pt-cell-actions { display: flex; gap: 3px; margin-top: 2px; min-height: 22px; align-items: center; }
+.pt-plus:hover:not(:disabled) { opacity: 1; border-color: var(--pt-accent-line); background: var(--pt-accent-soft); }
+.pt-plus:active:not(:disabled) { transform: scale(.97); }
+.pt-plus:disabled { opacity: .3; cursor: default; }
+
+/* ---- meal rows ------------------------------------------------------- */
+.pt-meals { display: flex; flex-direction: column; gap: 3px; }
+.pt-meal { display: flex; align-items: center; gap: 7px; min-height: 24px; }
+.pt-meal-label { font-size: 11px; opacity: .7; width: 26px; flex: none; }
+.pt-meal-time { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.pt-meal-price { font-size: 11px; opacity: .65; font-variant-numeric: tabular-nums; }
+.pt-meal-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 3px; }
+.pt-meal-done .pt-meal-label { opacity: 1; }
 
 /* ---- metrics and bars ------------------------------------------------ */
 .pt-metrics { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -230,7 +238,6 @@ const CSS = `
 @media (max-width: 260px) {
   .pt-grid { grid-template-columns: minmax(0,1fr); }
   .pt-span-1, .pt-span-2 { grid-column: 1 / -1; }
-  .pt-cells { grid-template-columns: minmax(0,1fr); }
 }
 `
 

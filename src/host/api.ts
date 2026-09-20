@@ -9,6 +9,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { z } from 'zod'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
+import { BackupFormatError, type Backup, type ImportMode } from './backup.ts'
 import type { Config, DayBoundary } from './config.ts'
 import { habitDayKey, instantForHabitDay, isNightTail, dayKeySpan, type DayKey } from './daykey.ts'
 import { mediaRecord, taskRecord } from './domain.ts'
@@ -32,10 +33,14 @@ class ApiError extends Error {
 /** Everything the handler needs from the plugin. */
 export interface ApiDeps {
   readonly store: HabitStore
+  readonly backup: Backup
   readonly boundary: DayBoundary
   readonly config: Config
   readonly now: () => Date
 }
+
+/** A backup file is far larger than an ordinary mutation body. */
+const BACKUP_BODY_LIMIT = 16 * 1024 * 1024
 
 const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD')
 const ISO = z.string().min(1)
@@ -400,6 +405,29 @@ export function createApiHandler(deps: ApiDeps): WebRoute['handler'] {
         }), await readJson(req), 'laundry stock')
         const stock = await store.setStock(body.pending, body.at ?? iso())
         sendJson(res, 200, { ...stateFor(today()), stock })
+        return
+      }
+
+      case 'GET /backup': {
+        sendJson(res, 200, { ok: true, backup: deps.backup.exportAll(iso()) })
+        return
+      }
+
+      case 'POST /backup': {
+        const body = parse(z.object({
+          /** `merge` overwrites the keys the file carries; `replace` also
+           *  drops everything the file does not carry. */
+          mode: z.enum(['merge', 'replace']).default('merge'),
+          backup: z.unknown(),
+        }), await readJson(req, BACKUP_BODY_LIMIT), 'backup import')
+        let report
+        try {
+          report = await deps.backup.importAll(body.backup, body.mode as ImportMode)
+        } catch (cause) {
+          if (cause instanceof BackupFormatError) throw new ApiError(400, 'habit/bad-backup', cause.message)
+          throw cause
+        }
+        sendJson(res, 200, { ok: true, report, ...store.view(today(), today()) })
         return
       }
 

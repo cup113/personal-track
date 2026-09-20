@@ -27,15 +27,16 @@ export function Tile({ span = 1, tone = 'idle', children }: {
 }
 
 /** The tile's title row: name, a right-aligned fact, and optional actions. */
-export function TileHead({ title, meta, children }: {
+export function TileHead({ title, meta, metaTitle, children }: {
   readonly title: string
   readonly meta?: string
+  readonly metaTitle?: string
   readonly children?: ReactNode
 }): JSX.Element {
   return (
     <header className="pt-tile-head">
       <span className="pt-tile-title">{title}</span>
-      {meta === undefined ? null : <span className="pt-tile-meta">{meta}</span>}
+      {meta === undefined ? null : <span className="pt-tile-meta" title={metaTitle}>{meta}</span>}
       {children === undefined ? null : <span className="pt-tile-actions">{children}</span>}
     </header>
   )
@@ -61,12 +62,33 @@ export function IconButton({ label, disabled, onClick, children }: {
 }
 
 /** A full-row heading that groups the tiles below it. */
-export function GroupHeader({ label, hint }: { readonly label: string; readonly hint?: string }): JSX.Element {
+export function GroupHeader({ label }: { readonly label: string }): JSX.Element {
   return (
     <div className="pt-group">
       <span>{label}</span>
-      {hint === undefined ? null : <small>{hint}</small>}
     </div>
+  )
+}
+
+/**
+ * The empty slot of a counted habit: a dashed `＋` standing where the next
+ * record will go. Callers stop rendering it once the day is full, so the tile
+ * shrinks to exactly the records it holds.
+ */
+export function AddSlot({ label, disabled, onClick }: {
+  readonly label: string
+  readonly disabled: boolean
+  readonly onClick: () => void
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      className="pt-plus"
+      title={label}
+      aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
+    >＋</button>
   )
 }
 

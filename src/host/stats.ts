@@ -91,9 +91,10 @@ export interface StatsView {
   }
   readonly washing: { readonly count: number; readonly pieces: number }
   readonly meals: {
-    readonly slots: readonly { readonly slot: string; readonly days: number; readonly ratio: number }[]
+    /** Breakfast alone: the panel shows one meal slot, not three. */
+    readonly breakfast: { readonly days: number; readonly ratio: number }
+    /** Every slot's recorded spend, summed. */
     readonly spend: number
-    readonly spendBySlot: readonly { readonly slot: string; readonly amount: number }[]
   }
   readonly media: {
     /** Finished inside the range. */
@@ -329,9 +330,11 @@ export function buildStats(
     },
     washing: { count: washingCount, pieces: washingPieces },
     meals: {
-      slots: slotStats.map(({ slot, days: count, ratio }) => ({ slot, days: count, ratio })),
+      breakfast: {
+        days: slotStats.find(slot => slot.slot === 'breakfast')?.days ?? 0,
+        ratio: slotStats.find(slot => slot.slot === 'breakfast')?.ratio ?? 0,
+      },
       spend: round1(slotStats.reduce((sum, slot) => sum + slot.amount, 0)),
-      spendBySlot: slotStats.map(({ slot, amount }) => ({ slot, amount: round1(amount) })),
     },
     media: {
       finished: mediaDone.filter(entry => finishedInRange(entry.finishedAt)).length,
