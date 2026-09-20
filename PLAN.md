@@ -202,15 +202,41 @@ Host/Client 是**两个独立 tsconfig 程序**（两侧都向 cordis `Context` 
 | **M5 统计** | 主面板 + 聚合 + 热力网格 + 三块指标 + **心率-配速曲线** | 周/月数字与手算一致；曲线同配速心率趋势可读 |
 | **M6 收尾** | zh/en 文案、错误态、README、正式安装、git 提交 | 重启后开箱即用 |
 
-## 7.5 M0 实证结果
+## 7.5 交付状态（M0–M5 已完成并各自验证）
+
+每个里程碑都对应一笔提交，验证脚本与断言随代码一起入库。
+
+| 里程碑 | 提交 | 状态 |
+|---|---|---|
+| **M0 骨架** | `22f2683` | ✅ 已在 GUI 中目视确认：右侧栏出现「习惯看板」入口与标签页 |
+| **M1a 数据层** | `ec5d9e0` | ✅ 34 项数据层断言（习惯日算法、夜段、时区、往返不变量、8 格、目标与超额、任务三态与逾期、配速、连续与补卡重算） |
+| **M1b 存储与 API** | `6f071f5` | ✅ 真实 storage 中枢 + json 后端 + domain facility + webserver 的端到端；含磁盘真身检查与重启重读 |
+| **M2 看板·日常饮食** | `9dba117` | ✅ 日期导航/夜段/完成度 chip/洗漱·洗澡·洗衣/三餐/补卡 |
+| **M3 学习与健身** | `2a86628` | ✅ 会话增改删统一原语；背单词目标、多邻国、跑步/跳绳/引体/器材 |
+| **M3.5 可编辑时间 + 看板化改版** | `0c08c1b` `a0c2f17` | ✅ 任意打卡时间可改（夜段归属由宿主换算）；网格卡片、分类 pill、环形进度、三档按钮 |
+| **M4 登记** | `4f0bf5f` | ✅ 影视书籍与任务作业；PATCH 显式 null 清空；完成时刻自动维护 |
+| **M5 统计面板** | `47cb696` | ✅ 主区域内整页统计：热力图、汇总卡、**心率-配速曲线**（手写 SVG） |
+
+自动化验证入口：`pnpm typecheck`（双程序）、`pnpm test`（34 项数据层断言）、
+`pnpm verify`（客户端 facade：包装契约/四个注册面/22 个命令 + 宿主 15 阶段真实栈端到端）。
+
+### 尚未完成 / 需要在你的环境确认
+
+| 项 | 说明 |
+|---|---|
+| **重启后的目视验收** | 宿主半身只在 `dsh` 重启时替换；M5 之后的完整界面需要你重启一次 `dsh --profile web` 再看 |
+| **zh/en 双语文案** | 目前界面文案为中文硬编码。抽出 locale 命名空间需要遍历全部组件并在注册处传 `locale`，属机械改动；对单人中文使用场景收益有限，**按需再做** |
+| **正式安装** | `dsh plugin --profile web add link:D:/Projects/personal-track` + 重启（README 有完整步骤） |
+
+### M0 的原始实证结果（保留）
 
 | 验证项 | 手段 | 结果 |
 |---|---|---|
 | 双半身类型检查 | `pnpm run typecheck`（两个独立程序） | ✅ 零错误 |
-| 包装契约 | 静态比对 banner/intro/footer 与平台模块表 | ✅ 逐字一致；运行时 `require` 仅 `react/jsx-runtime` |
-| bundle 可执行 | `scripts/verify-client.mjs`：伪造 `window.__ModuleLoader__` + 平台 `require`，真实物化工厂并对假 ctx 跑 `apply` | ✅ 导出 `inject`/`apply`，tab 类型与 slot body 注册均符合预期 |
-| 宿主端到端 | `scripts/verify-host.mjs`：挂真实 `@deepseek-ai/dsh-host-webserver`（OS 分配端口）+ 真实 Cordis，真 HTTP 请求 | ✅ `/habit/api/state` 200 JSON；前缀语义正确（`/habit` 404） |
-| dsh 接受该包 | 已定位正确入口：启动器级 `--patch`（`dsh --profile web --patch …`）或 `dsh plugin --profile web add link:…` + 重启；bundle 格式已与在装的第三方插件逐项比对一致 | ⏳ 待重启验证 |
+| 包装契约 | 静态比对 banner/intro/footer 与平台模块表 | ✅ 逐字一致；运行时 `require` 仅 `react` / `react/jsx-runtime` |
+| bundle 可执行 | `scripts/verify-client.mjs`：伪造 `window.__ModuleLoader__` + 平台 `require`，真实物化工厂并对假 ctx 跑 `apply` | ✅ 导出与四个注册面均符合预期 |
+| 宿主端到端 | `scripts/verify-host.mjs`：挂真实 `@deepseek-ai/dsh-host-webserver`（OS 分配端口）+ 真实 Cordis，真 HTTP 请求 | ✅ 15 个阶段全绿 |
+| dsh 接受该包 | 启动器级 `--patch` 或 `dsh plugin add link:` + 重启 | ✅ 已在 GUI 中确认（M0 时） |
 | 浏览器渲染 | 待做：GUI 里目视 guide 入口与 tab | ⏳ |
 
 **沙箱约束（已解决，记录以免重踩）**：esbuild 的 JS API 以管道 stdio 派生编译器子进程，被沙箱拒绝（`spawn EPERM`）→ 构建改为直接调用原生 CLI（继承 stdio）。pnpm 11 的构建许可写在 `pnpm-workspace.yaml` 的 `allowBuilds`（package.json 的 `pnpm` 字段已失效），且 esbuild 的 postinstall 设为 `false`（我们直接调用二进制，不需要它）。
