@@ -234,6 +234,7 @@ export function BoardBody({ client, openStats }: BoardBodyProps): JSX.Element {
         />
         <TaskTile
           tasks={state?.tasks ?? []}
+          today={clock.today}
           busy={busy}
           onAdd={(input: TaskInput) => registryAct(() => client.addTask(input))}
           onPatch={(id, patch: TaskPatch) => registryAct(() => client.patchTask(id, patch))}

@@ -6,6 +6,7 @@
  * can never drift a day. `shiftKey` mirrors the host's key arithmetic — the
  * client navigates dates, but the host still decides what "today" is.
  */
+import type { FieldSpec } from './fields.tsx'
 
 /** `09:41` in the browser's local zone, or an em dash when unset. */
 export function timeOf(instant: string | null | undefined): string {
@@ -31,6 +32,25 @@ export function timeValueOf(instant: string | null | undefined): string {
 
 /** A standard time input, described once for every editable entry. */
 export const TIME_FIELD = { name: 'time', label: '时间', kind: 'time' } as const
+
+/** The browser's clock as `HH:mm`. */
+export function clockTimeOf(): string {
+  const now = new Date()
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${pad(now.getHours())}:${pad(now.getMinutes())}`
+}
+
+/**
+ * The time field with the current clock time filled in.
+ *
+ * A new entry is normally recorded at the moment it happened, so "now" is the
+ * value worth showing — and it is the instant the host would stamp anyway.
+ * Call this while rendering: a module-level constant would freeze at import,
+ * and `initial` still wins whenever an existing entry is being edited.
+ */
+export function timeField(): FieldSpec {
+  return { ...TIME_FIELD, defaultValue: clockTimeOf() }
+}
 
 /** `9月16日` for a habit-day key. */
 export function monthDayOf(key: string): string {
@@ -61,6 +81,19 @@ export function shiftKey(key: string, days: number): string {
   const moved = new Date(Date.UTC(year, month - 1, day) + days * 86_400_000)
   const pad = (value: number): string => String(value).padStart(2, '0')
   return `${moved.getUTCFullYear()}-${pad(moved.getUTCMonth() + 1)}-${pad(moved.getUTCDate())}`
+}
+
+/**
+ * The Sunday that ends the week containing `key`.
+ *
+ * Weeks start on Monday, the same convention the statistics ranges use, so
+ * "本周末" is that Sunday — the deadline a new task defaults to. Parsed at noon
+ * UTC and read back in UTC, so no local zone can shift the weekday.
+ */
+export function weekEndKey(key: string): string {
+  const weekday = new Date(`${key}T12:00:00Z`).getUTCDay()
+  const fromMonday = (weekday + 6) % 7
+  return shiftKey(key, 6 - fromMonday)
 }
 
 /** Pace in minutes per kilometre; undefined when it cannot be computed. */

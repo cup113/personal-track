@@ -5,14 +5,14 @@
 import { useState, type JSX } from 'react'
 import type { EquipmentSession, PullupSession, RopeSession } from '../types.ts'
 import { FieldForm, type FieldSpec } from './fields.tsx'
-import { TIME_FIELD, paceLabel, paceOf, timeOf, timeValueOf } from './format.ts'
+import { paceLabel, paceOf, timeField, timeOf, timeValueOf } from './format.ts'
 import { SessionTile, type SessionEntry } from './session-cards.tsx'
 import { IconButton, Tile, TileHead } from './tile.tsx'
 
 /** Fields for the single running entry; the duration starts from config. */
 function runFields(defaultMinutes: number): readonly FieldSpec[] {
   return [
-    TIME_FIELD,
+    timeField(),
     { name: 'minutes', label: '时长(分)', kind: 'number', min: 1, defaultValue: String(defaultMinutes) },
     { name: 'distanceKm', label: '里程(km)', kind: 'number', step: 0.01, min: 0 },
     { name: 'avgHr', label: '平均心率', kind: 'number', min: 1, optional: true },

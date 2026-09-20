@@ -13,6 +13,7 @@ import { useState, type JSX } from 'react'
 import type { MediaInput, MediaPatch, TaskInput, TaskPatch } from '../api.ts'
 import type { MediaEntry, TaskEntry } from '../types.ts'
 import { FieldForm, type FieldSpec } from './fields.tsx'
+import { weekEndKey } from './format.ts'
 import { IconButton, Tile, TileHead } from './tile.tsx'
 
 /** Which editor, if any, is open. */
@@ -55,6 +56,18 @@ const TASK_FIELDS: readonly FieldSpec[] = [
   { name: 'total', label: '目标量', kind: 'number', min: 1, optional: true },
   { name: 'notes', label: '备注', kind: 'text', optional: true },
 ]
+
+/**
+ * Task fields for a *new* task, whose deadline starts at this week's end.
+ *
+ * Most homework and chores are due by the weekend, so that is the value worth
+ * pre-filling; it stays an ordinary optional date field, freely changed or
+ * cleared. Built per render — a module-level default would freeze at import.
+ */
+function newTaskFields(today: string): readonly FieldSpec[] {
+  const weekend = weekEndKey(today)
+  return TASK_FIELDS.map(field => (field.name === 'due' ? { ...field, defaultValue: weekend } : field))
+}
 
 /** Display text for a media status. */
 const MEDIA_STATUS: Record<string, string> = { active: '在列', done: '完成', dropped: '弃' }
@@ -199,6 +212,8 @@ export function MediaTile({ media, busy, onAdd, onPatch, onRemove }: MediaTilePr
 /** Props for the task tile. */
 export interface TaskTileProps {
   readonly tasks: readonly TaskEntry[]
+  /** The current habit day: what "this week's end" is measured from. */
+  readonly today: string
   readonly busy: boolean
   readonly onAdd: (input: TaskInput) => void
   readonly onPatch: (id: string, patch: TaskPatch) => void
@@ -206,7 +221,7 @@ export interface TaskTileProps {
 }
 
 /** Tasks and homework: open items first, with the derived state shown. */
-export function TaskTile({ tasks, busy, onAdd, onPatch, onRemove }: TaskTileProps): JSX.Element {
+export function TaskTile({ tasks, today, busy, onAdd, onPatch, onRemove }: TaskTileProps): JSX.Element {
   const [mode, setMode] = useState<Mode>({ kind: 'idle' })
   const open = tasks.filter(task => task.state !== 'done').length
   const overdue = tasks.filter(task => task.overdue).length
@@ -284,7 +299,7 @@ export function TaskTile({ tasks, busy, onAdd, onPatch, onRemove }: TaskTileProp
       {mode.kind === 'add'
         ? (
           <FieldForm
-            fields={TASK_FIELDS}
+            fields={newTaskFields(today)}
             submitLabel="新建"
             busy={busy}
             onSubmit={(payload) => {

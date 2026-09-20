@@ -9,7 +9,7 @@
  */
 import { useState, type JSX } from 'react'
 import { FieldForm, type FieldSpec } from './fields.tsx'
-import { TIME_FIELD, timeValueOf } from './format.ts'
+import { timeField, timeValueOf } from './format.ts'
 import { IconButton, Tile, TileHead } from './tile.tsx'
 
 /** A stored session entry: an id plus whatever metrics its kind carries. */
@@ -41,7 +41,9 @@ export function SessionList({
   title, entries, fields, summarize, busy, addLabel, emptyLabel, onAdd, onPatch, onRemove,
 }: SessionListProps): JSX.Element {
   const [mode, setMode] = useState<Mode>({ kind: 'idle' })
-  const allFields: readonly FieldSpec[] = [TIME_FIELD, ...fields]
+  // Built per render so the add form opens on the current clock time; an entry
+  // being edited overrides it through `initial` below.
+  const allFields: readonly FieldSpec[] = [timeField(), ...fields]
 
   return (
     <>

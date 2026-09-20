@@ -6,10 +6,10 @@ import { useState, type JSX } from 'react'
 import type { MealSlot } from '../api.ts'
 import type { DayRecord } from '../types.ts'
 import { FieldForm, type FieldSpec } from './fields.tsx'
-import { TIME_FIELD, moneyOf, timeOf, timeValueOf } from './format.ts'
+import { timeField, TIME_FIELD, moneyOf, timeOf, timeValueOf } from './format.ts'
 import { AddSlot, IconButton, Tile, TileHead, TimeChip, TimeEditor } from './tile.tsx'
 
-/** Fields one meal slot exposes when edited. */
+/** Fields one meal slot exposes when edited; its own time is always known. */
 const MEAL_EDIT_FIELDS: readonly FieldSpec[] = [
   TIME_FIELD,
   { name: 'price', label: '价格', kind: 'number', step: 0.5, min: 0, optional: true, placeholder: '可留空' },
@@ -110,7 +110,7 @@ export function LaundryTile({ pending, busy, onDelta, onWash, onSet }: LaundryTi
         <FieldForm
           fields={[
             { name: 'pieces', label: '洗了几件', kind: 'number', min: 1, defaultValue: String(pending) },
-            TIME_FIELD,
+            timeField(),
           ]}
           submitLabel="记下这次洗涤"
           busy={busy}

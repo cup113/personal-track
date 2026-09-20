@@ -17,6 +17,10 @@ DeepSeek Harness（DSH）插件：右侧栏的**每日习惯看板** + 主区域
 | 健身 | 跑步、跳绳、引体向上、健身器材 | 跑步每日至多一次并显示派生配速；跳绳 90/180 定数；引体记支撑时长；器材记名称/动作数/重量 |
 | 记录 | 影视书籍、任务作业 | 跨日保留的状态登记：媒体三态 + 5 星评分；任务进度 → 三态派生 + 逾期，一键完成 |
 
+两处**初值**是替你算好的：新增会话（背单词 / 多邻国 / 健身 / 洗衣）的**时间默认当前时刻**
+（正是宿主本会盖上的那个值，改一下即可补录）；新建任务的**截止默认本周末**
+（周一为一周之始，即当前习惯日所在周的周日），仍是可改可清空的普通日期字段。
+
 看板顶部是**完成度环 + 八格点阵**（分母固定 8 格：洗漱 2、洗澡 1、三餐 3、背单词 1、多邻国 1），
 按分组自上而下全部列出（不做筛选），可切换到任意历史日**补卡**（不能进入未来；凌晨时段标注为"周X夜"）。
 
@@ -53,8 +57,8 @@ patch 行的两条对齐铁律：`name` 必须是包名（Loader 据此从 profi
 pnpm install
 pnpm build        # 产出 lib/index.js（ESM）与 lib/client.js（浏览器闭包工厂）
 pnpm watch        # 只重建产物；客户端 bundle 改动会被宿主轮询到并热重载
-pnpm typecheck    # 两个独立程序的类型检查
-pnpm test         # 数据层断言（习惯日算法与全部派生值）
+pnpm typecheck    # 三个独立程序（宿主 / 浏览器 / 测试）
+pnpm test         # 数据层断言 + 客户端纯函数断言（习惯日算法、派生值、周末/初值）
 pnpm verify       # 客户端 facade + 宿主真实栈端到端
 ```
 
@@ -102,7 +106,7 @@ src/host/    index.ts（装配）· config.ts · daykey.ts（习惯日算法）
 src/client/  index.tsx（注册面）· api.ts（命令面）· types.ts（线上契约）
              styles.ts（注入式样式表）· board/（tile 原语 + 看板卡片 + 统计面板 + 数据卡片）
 scripts/     build.mjs（esbuild CLI 双产物）· verify-client.mjs · verify-host.mjs
-tests/       data-layer.test.ts
+tests/       data-layer.test.ts（宿主）· client-format.test.ts（客户端纯函数）
 docs/adr/    0001 树外传输 · 0002 状态派生不落库
 ```
 
