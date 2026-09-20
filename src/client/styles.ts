@@ -102,9 +102,23 @@ const CSS = `
 .pt-ring-text small { font-weight: 400; font-size: 10px; opacity: .6; }
 .pt-chip { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .pt-chip-count { font-size: 11px; opacity: .65; font-variant-numeric: tabular-nums; }
-.pt-dots { display: flex; flex-wrap: wrap; gap: 4px; }
-.pt-dot { width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--pt-line-strong); transition: background .12s ease; }
-.pt-dot-on { background: var(--pt-accent); border-color: var(--pt-accent); }
+/*
+ * One square per cell, filled to that cell's fraction. The fill is itself a
+ * gradient, so a partly done cell reads as a green level rather than a step.
+ */
+.pt-marks { display: flex; flex-wrap: wrap; gap: 3px; }
+.pt-mark {
+  display: block; width: 10px; height: 10px; overflow: hidden;
+  border: 1px solid var(--pt-line-strong); border-radius: 3px;
+  background: var(--pt-surface-2);
+  transition: border-color .12s ease;
+}
+.pt-mark-on { border-color: var(--pt-accent-line); }
+.pt-mark-fill {
+  display: block; height: 100%;
+  background: linear-gradient(90deg, rgba(90,175,120,.95), rgba(146,215,170,.9));
+  transition: width .18s ease;
+}
 
 /* ---- date navigator -------------------------------------------------- */
 .pt-nav-wrap { display: flex; flex-direction: column; gap: 6px; }
@@ -224,6 +238,23 @@ const CSS = `
 .pt-badge-ok { border-color: var(--pt-accent-line); background: var(--pt-accent-soft); }
 .pt-badge-warn { border-color: rgba(220,140,90,.55); background: rgba(220,140,90,.18); }
 .pt-badge-dim { opacity: .55; }
+
+/* A deadline's urgency, by whole days from today. */
+.pt-due-overdue, .pt-due-today { color: rgba(232,96,96,.95); font-weight: 600; }
+.pt-due-soon { color: rgba(232,150,72,.95); font-weight: 600; }
+.pt-due-week { color: rgba(214,190,86,.95); }
+.pt-due-far { opacity: .6; }
+
+/* A task's own progress, as a hairline bar before its actions. */
+.pt-task-bar {
+  flex: none; width: 34px; height: 4px; border-radius: 2px;
+  background: var(--pt-surface-2); overflow: hidden;
+}
+.pt-task-bar-fill {
+  display: block; height: 100%; border-radius: 2px;
+  background: linear-gradient(90deg, rgba(90,175,120,.8), rgba(130,205,155,.95));
+  transition: width .18s ease;
+}
 
 /* ---- the statistics panel (main area) -------------------------------- */
 .pt-panel-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }

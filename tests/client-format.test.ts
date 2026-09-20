@@ -9,7 +9,16 @@
  * half's pure logic can be tested without a browser.
  */
 import { strict as assert } from 'node:assert'
-import { clockTimeOf, shiftKey, TIME_FIELD, timeField, weekEndKey } from '../src/client/board/format.ts'
+import {
+  clockTimeOf,
+  daysBetweenKeys,
+  dueLevelOf,
+  fractionText,
+  shiftKey,
+  TIME_FIELD,
+  timeField,
+  weekEndKey,
+} from '../src/client/board/format.ts'
 
 let passed = 0
 
@@ -53,6 +62,30 @@ check('the time field carries the current clock time as its default', () => {
 check('the shared constant stays empty, so no default is frozen at import', () => {
   assert.equal(Object.hasOwn(TIME_FIELD, 'defaultValue'), false)
   assert.match(String(timeField().defaultValue), /^([01]\d|2[0-3]):[0-5]\d$/)
+})
+
+console.log('deadline proximity (the board colours it)')
+check('day differences count whole days either way', () => {
+  assert.equal(daysBetweenKeys('2026-09-16', '2026-09-16'), 0)
+  assert.equal(daysBetweenKeys('2026-09-16', '2026-09-19'), 3)
+  assert.equal(daysBetweenKeys('2026-09-16', '2026-09-15'), -1)
+  assert.equal(daysBetweenKeys('2026-09-30', '2026-10-02'), 2, 'across a month boundary')
+})
+check('the bands are today, three days, a week, then beyond', () => {
+  const today = '2026-09-16'
+  assert.equal(dueLevelOf('2026-09-15', today), 'overdue', 'yesterday')
+  assert.equal(dueLevelOf('2026-09-16', today), 'today')
+  assert.equal(dueLevelOf('2026-09-17', today), 'soon')
+  assert.equal(dueLevelOf('2026-09-19', today), 'soon', 'three days out is still soon')
+  assert.equal(dueLevelOf('2026-09-20', today), 'week', 'four days out moves to a week')
+  assert.equal(dueLevelOf('2026-09-23', today), 'week', 'seven days out is the edge')
+  assert.equal(dueLevelOf('2026-09-24', today), 'far', 'eight days out is unremarkable')
+})
+check('a fractional count keeps one decimal and drops a trailing .0', () => {
+  assert.equal(fractionText(5), '5')
+  assert.equal(fractionText(5.25), '5.3', 'rounded to one decimal, not truncated')
+  assert.equal(fractionText(4.0), '4')
+  assert.equal(fractionText(0.5), '0.5')
 })
 
 console.log(`\n${passed} checks passed`)

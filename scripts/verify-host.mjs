@@ -120,7 +120,7 @@ const patched = await api.call('PATCH', '/session', {
 assert.equal(patched.body.day.vocab.minutes, 45, 'editing a session recomputes progress')
 
 const lesson = await api.call('POST', '/session', { date: DATE, kind: 'duolingo', entry: { minutes: 12 } })
-assert.equal(lesson.body.day.cells.find(cell => cell.id === 'duolingo').done, true)
+assert.equal(lesson.body.day.cells.find(cell => cell.id === 'duolingo').value, 1)
 assert.equal(lesson.body.day.progress.done, 5, 'wash + shower + lunch + vocab + duolingo')
 const lessonId = lesson.body.day.day.duolingo[0].id
 
@@ -143,7 +143,7 @@ const nightWash = await api.call('PATCH', '/check', { date: DATE, habit: 'wash',
 assert.equal(clockOf(nightWash.body.day.day.washes.times[0]), '01:30')
 assert.equal(localDateOf(nightWash.body.day.day.washes.times[0]), '2026-09-17',
   'a night-tail time lands on the next calendar date …')
-assert.equal(nightWash.body.day.cells.find(cell => cell.id === 'wash1').done, true,
+assert.equal(nightWash.body.day.cells.find(cell => cell.id === 'wash1').value, 1,
   '… while still counting inside the habit day')
 
 const retimedMeal = await api.call('PUT', '/meal', { date: DATE, slot: 'lunch', time: '12:20', price: 12.5 })
@@ -254,6 +254,30 @@ const dropped = await api.call('DELETE', `/media?id=${bookId}`)
 assert.equal(dropped.body.removed, true, 'media delete is a hard delete')
 assert.equal(dropped.body.media.length, 0)
 console.log('tasks + media ✓  (derived state, completion instant, null clears, hard delete)')
+
+// --- a task due today is a cell in today's bar --------------------------------
+const dated = await api.call('POST', '/tasks', { title: '今日作业', due: DATE })
+const datedId = dated.body.entry.id
+const withCell = (await api.call('GET', `/state?date=${DATE}`)).body
+assert.equal(withCell.day.progress.total, 9, 'a task due that day adds a cell to the bar')
+assert.equal(withCell.day.cells.at(-1).id, `task:${datedId}`)
+assert.equal(withCell.day.cells.at(-1).label, '今日作业', 'the cell carries the task title')
+assert.equal(withCell.day.cells.at(-1).value, 0, 'and starts empty')
+assert.equal(withCell.day.progress.done, 5, 'an untouched task moves nothing yet')
+
+await api.call('PATCH', '/tasks', { id: datedId, patch: { progress: { current: 1, total: 4 } } })
+const quarter = (await api.call('GET', `/state?date=${DATE}`)).body
+assert.equal(quarter.day.cells.at(-1).value, 0.25, 'progress fills the cell fractionally')
+assert.equal(quarter.day.progress.done, 5.3, 'a quarter of a cell reads as one decimal')
+// A different day is untouched by it, because only the deadline links them.
+const other = (await api.call('GET', '/state?date=2026-09-19')).body
+assert.equal(other.day.progress.total, 8, 'the cell belongs to the due date alone')
+
+await api.call('DELETE', `/tasks?id=${datedId}`)
+const dropped2 = (await api.call('GET', `/state?date=${DATE}`)).body
+assert.equal(dropped2.day.progress.total, 8, 'deleting the task takes its cell back')
+assert.equal(dropped2.day.progress.done, 5)
+console.log('due-today cells ✓  (one cell per due task, fractional value, gone with the task)')
 
 // --- range statistics --------------------------------------------------------
 // Day-scoped figures are deterministic over the recorded day alone, so the

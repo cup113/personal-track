@@ -28,6 +28,7 @@ import {
   taskState,
   vocabProgress,
   type Cell,
+  type DueTask,
   type TaskState,
   type VocabProgress,
 } from './derive.ts'
@@ -49,6 +50,7 @@ export interface DayView {
   readonly target: VocabTarget
   readonly vocab: VocabProgress
   readonly cells: Cell[]
+  /** `done` is fractional to one decimal; `total` grows with the due tasks. */
   readonly progress: { done: number; total: number }
 }
 
@@ -78,7 +80,9 @@ export interface DayFacts {
   readonly day: DayRecord
   readonly target: VocabTarget
   readonly vocab: VocabProgress
+  /** Habit cells plus one per task due this day (see `dayCells`). */
   readonly cells: Cell[]
+  /** `done` is fractional to one decimal; `total` grows with the due tasks. */
   readonly progress: { readonly done: number; readonly total: number }
   readonly perfect: boolean
 }
@@ -216,6 +220,28 @@ export function createHabitStore(domain: HabitDomain, config: Config): HabitStor
     return counters.get(LAUNDRY_KEY) ?? { pending: 0, updatedAt: new Date(0).toISOString() }
   }
 
+  /**
+   * The tasks whose deadline falls on `key`, as the day's bar sees them.
+   *
+   * Tasks carry no habit day, so the deadline is the only link — and it is the
+   * *current* state of those tasks that counts, not how they stood on that day:
+   * finishing today's homework fills today's square, just as editing a session
+   * retroactively moves that day's progress.
+   */
+  function dueTasksOn(key: DayKey): DueTask[] {
+    const due: DueTask[] = []
+    for (const [, record] of tasks.entries()) {
+      if (record.due !== key) continue
+      due.push({
+        id: record.id,
+        title: record.title,
+        current: record.progress.current,
+        total: record.progress.total,
+      })
+    }
+    return due.sort((a, b) => (a.title < b.title ? -1 : a.title > b.title ? 1 : 0))
+  }
+
   const byCreatedAtDesc = <T extends { createdAt: string }>(entries: Iterable<T>): T[] =>
     [...entries].sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))
 
@@ -224,15 +250,16 @@ export function createHabitStore(domain: HabitDomain, config: Config): HabitStor
 
     dayFacts(key) {
       const record = effective(key)
+      const due = dueTasksOn(key)
       return {
         date: key,
         stored: days.get(key) ?? null,
         day: record,
         target: copyTarget(record.vocab?.target ?? config.defaultVocabTarget),
         vocab: vocabProgress(record) ?? NO_PROGRESS,
-        cells: dayCells(record),
-        progress: cellProgress(record),
-        perfect: isPerfectDay(record),
+        cells: dayCells(record, due),
+        progress: cellProgress(record, due),
+        perfect: isPerfectDay(record, due),
       }
     },
 

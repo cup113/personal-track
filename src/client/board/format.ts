@@ -96,6 +96,41 @@ export function weekEndKey(key: string): string {
   return shiftKey(key, 6 - fromMonday)
 }
 
+/** Whole days from `from` to `to`: 0 for the same day, negative when `to` is past. */
+export function daysBetweenKeys(from: string, to: string): number {
+  const at = (key: string): number => {
+    const [year, month, day] = key.split('-').map(Number) as [number, number, number]
+    return Date.UTC(year, month - 1, day)
+  }
+  return Math.round((at(to) - at(from)) / 86_400_000)
+}
+
+/** How close a deadline is, as the board colours it. */
+export type DueLevel = 'overdue' | 'today' | 'soon' | 'week' | 'far'
+
+/**
+ * The band a deadline falls in: past, today, within three days, within a week,
+ * or beyond. Bands are counted in whole days from the current habit day.
+ */
+export function dueLevelOf(due: string, today: string): DueLevel {
+  const days = daysBetweenKeys(today, due)
+  if (days < 0) return 'overdue'
+  if (days === 0) return 'today'
+  if (days <= 3) return 'soon'
+  if (days <= 7) return 'week'
+  return 'far'
+}
+
+/**
+ * A count that may be fractional, with at most one decimal and no trailing
+ * `.0` — the completion bar sums partial cells, so `4.5/9` and `5/9` are both
+ * ordinary readings.
+ */
+export function fractionText(value: number): string {
+  const rounded = Math.round(value * 10) / 10
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
+}
+
 /** Pace in minutes per kilometre; undefined when it cannot be computed. */
 export function paceOf(minutes: number, distanceKm: number): number | undefined {
   if (!(minutes > 0) || !(distanceKm > 0)) return undefined
@@ -112,16 +147,4 @@ export function paceLabel(pace: number | undefined): string {
     whole += 1
   }
   return `${whole}'${String(seconds).padStart(2, '0')}"/km`
-}
-
-/** Human text for the eight cells, used as dot tooltips. */
-export const CELL_LABELS: Record<string, string> = {
-  wash1: '洗漱 1',
-  wash2: '洗漱 2',
-  shower: '洗澡',
-  breakfast: '早饭',
-  lunch: '午饭',
-  dinner: '晚饭',
-  vocab: '背单词',
-  duolingo: '多邻国',
 }

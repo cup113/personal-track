@@ -8,24 +8,53 @@
 import type { DayRecord, TaskRecord } from './domain.ts'
 import { shiftDayKey, type DayKey } from './daykey.ts'
 
-/** The eight cells the board's completion counter is built from. */
+/** The eight habit cells the board's completion bar is built from. */
 export type CellId =
   | 'wash1' | 'wash2' | 'shower'
   | 'breakfast' | 'lunch' | 'dinner'
   | 'vocab' | 'duolingo'
 
-/** The fixed cell inventory: hard-coded in v1 by decision. */
+/** The fixed habit inventory: hard-coded in v1 by decision. */
 export const CELL_IDS: readonly CellId[] = [
   'wash1', 'wash2', 'shower', 'breakfast', 'lunch', 'dinner', 'vocab', 'duolingo',
 ]
 
-/** How many cells a day has. */
+/** How many habit cells a day holds, before the tasks due that day are added. */
 export const CELL_TOTAL = CELL_IDS.length
 
-/** One cell's state. */
+/** Display text per habit cell; the host owns it, so the client keeps no map. */
+const CELL_LABEL: Record<CellId, string> = {
+  wash1: '洗漱 1',
+  wash2: '洗漱 2',
+  shower: '洗澡',
+  breakfast: '早饭',
+  lunch: '午饭',
+  dinner: '晚饭',
+  vocab: '背单词',
+  duolingo: '多邻国',
+}
+
+/** One cell of the completion bar. */
 export interface Cell {
-  readonly id: CellId
-  readonly done: boolean
+  /** A habit cell id, or `task:<id>` for a task due on this day. */
+  readonly id: string
+  readonly label: string
+  /** Completion as a fraction in `[0,1]`: 0 untouched, 1 complete, between = partial. */
+  readonly value: number
+}
+
+/**
+ * What a task contributes on the day it is due.
+ *
+ * Tasks carry no day of their own, so a day's bar includes one cell per task
+ * whose deadline is that day — this is what makes today's homework part of
+ * today's completion instead of a separate list.
+ */
+export interface DueTask {
+  readonly id: string
+  readonly title: string
+  readonly current: number
+  readonly total: number | undefined
 }
 
 /**
@@ -99,31 +128,64 @@ export function duolingoMet(day: DayRecord | undefined): boolean {
   return (day?.duolingo.length ?? 0) > 0
 }
 
-/** The eight cells and whether each is satisfied. */
-export function dayCells(day: DayRecord | undefined): Cell[] {
+/** Round to one decimal, keeping integers whole. */
+function round1(value: number): number {
+  return Math.round(value * 10) / 10
+}
+
+/** A task's contribution to its due day, as a fraction in `[0,1]`. */
+export function taskCellValue(task: DueTask): number {
+  if (task.total === undefined) return task.current > 0 ? 1 : 0
+  if (task.total <= 0) return task.current > 0 ? 1 : 0
+  return Math.max(0, Math.min(1, task.current / task.total))
+}
+
+/**
+ * The day's completion bar: eight habit cells plus one cell per task due that
+ * day, each carrying a fraction rather than a flag.
+ *
+ * Most habits are all-or-nothing, but two are genuinely partial: vocabulary
+ * reports its weighted target progress, and a task reports how far along it is.
+ * A half-finished homework shows as a half-filled square, and the count reads
+ * `4.5/9` — the bar answers "how much of today is done", not "how many boxes
+ * are ticked".
+ */
+export function dayCells(day: DayRecord | undefined, dueTasks: readonly DueTask[] = []): Cell[] {
   const washes = day?.washes.times.length ?? 0
   const meals = day?.meals
+  const habit = (id: CellId, value: number): Cell => ({ id, label: CELL_LABEL[id], value })
   return [
-    { id: 'wash1', done: washes >= 1 },
-    { id: 'wash2', done: washes >= 2 },
-    { id: 'shower', done: day?.shower.at != null },
-    { id: 'breakfast', done: meals?.breakfast !== undefined },
-    { id: 'lunch', done: meals?.lunch !== undefined },
-    { id: 'dinner', done: meals?.dinner !== undefined },
-    { id: 'vocab', done: vocabProgress(day)?.met ?? false },
-    { id: 'duolingo', done: duolingoMet(day) },
+    habit('wash1', washes >= 1 ? 1 : 0),
+    habit('wash2', washes >= 2 ? 1 : 0),
+    habit('shower', day?.shower.at != null ? 1 : 0),
+    habit('breakfast', meals?.breakfast !== undefined ? 1 : 0),
+    habit('lunch', meals?.lunch !== undefined ? 1 : 0),
+    habit('dinner', meals?.dinner !== undefined ? 1 : 0),
+    habit('vocab', vocabProgress(day)?.ratio ?? 0),
+    habit('duolingo', duolingoMet(day) ? 1 : 0),
+    ...dueTasks.map(task => ({
+      id: `task:${task.id}`,
+      label: task.title,
+      value: taskCellValue(task),
+    })),
   ]
 }
 
-/** Completed-cell count for the board's `n/8` chip. */
-export function cellProgress(day: DayRecord | undefined): { done: number; total: number } {
-  const cells = dayCells(day)
-  return { done: cells.filter(cell => cell.done).length, total: CELL_TOTAL }
+/** The board's `n/m` count: fractional cells sum, and the count keeps a decimal. */
+export function cellProgress(
+  day: DayRecord | undefined,
+  dueTasks: readonly DueTask[] = [],
+): { done: number; total: number } {
+  const cells = dayCells(day, dueTasks)
+  return {
+    done: round1(cells.reduce((sum, cell) => sum + cell.value, 0)),
+    total: cells.length,
+  }
 }
 
-/** A perfect day satisfies every cell. */
-export function isPerfectDay(day: DayRecord | undefined): boolean {
-  return dayCells(day).every(cell => cell.done)
+/** A perfect day completes every cell — including the tasks due that day. */
+export function isPerfectDay(day: DayRecord | undefined, dueTasks: readonly DueTask[] = []): boolean {
+  return dayCells(day, dueTasks).every(cell => cell.value >= 1)
 }
 
 /** Task state derived from progress (never stored). */

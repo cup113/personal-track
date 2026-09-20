@@ -162,7 +162,7 @@ check('a task defaults to zero progress with no total', () => {
   assert.equal(fresh.completedAt, undefined)
 })
 
-console.log('cells (the n/8 chip)')
+console.log('cells (the completion bar)')
 check('an absent day completes nothing', () => {
   assert.equal(dayCells(undefined).length, CELL_TOTAL)
   assert.deepEqual(cellProgress(undefined), { done: 0, total: 8 })
@@ -186,10 +186,50 @@ check('a perfect day completes all eight cells', () => {
   })
   assert.deepEqual(cellProgress(perfect), { done: 8, total: 8 })
   assert.equal(isPerfectDay(perfect), true)
-  assert.deepEqual(dayCells(perfect).map(cell => cell.done), Array(8).fill(true))
+  assert.deepEqual(dayCells(perfect).map(cell => cell.value), Array(8).fill(1))
 })
 check('a day with only a meal is not perfect', () => {
   assert.equal(isPerfectDay(day({ meals: { lunch: { at: 'x' } } })), false)
+})
+check('vocabulary fills its cell by weighted progress, not all or nothing', () => {
+  // 10 new against a 10 new + 50 review target: half of the weighted work.
+  const half = day({
+    vocab: { target: { new: 10, review: 50 }, sessions: [{ id: 'v1', at: 'x', new: 10, review: 0, minutes: 20 }] },
+  })
+  assert.equal(dayCells(half).find(cell => cell.id === 'vocab')?.value, 0.5)
+  assert.equal(cellProgress(half).done, 0.5)
+  assert.equal(isPerfectDay(half), false)
+  const full = day({
+    vocab: { target: { new: 10, review: 50 }, sessions: [{ id: 'v1', at: 'x', new: 10, review: 50, minutes: 40 }] },
+  })
+  assert.equal(dayCells(full).find(cell => cell.id === 'vocab')?.value, 1)
+})
+check('a task due that day is a cell, filled by its own progress', () => {
+  const tasks = [
+    { id: 't1', title: '线代作业', current: 3, total: 6 },
+    { id: 't2', title: '读一篇论文', current: 1, total: undefined },
+    { id: 't3', title: '预习', current: 0, total: undefined },
+  ]
+  const cells = dayCells(day(), tasks)
+  assert.equal(cells.length, CELL_TOTAL + 3, 'the bar grows by one cell per due task')
+  assert.equal(cells.at(-1)?.label, '预习', 'task cells carry the task title')
+  assert.equal(cells[8]?.id, 'task:t1')
+  assert.equal(cells[8]?.value, 0.5, '3 of 6 is half a cell')
+  assert.equal(cells[9]?.value, 1, 'a progress-less task is done or not')
+  assert.equal(cells[10]?.value, 0)
+  assert.deepEqual(cellProgress(day(), tasks), { done: 1.5, total: 11 })
+  assert.equal(isPerfectDay(day(), tasks), false, 'outstanding homework spoils the day')
+})
+check('the count keeps one decimal and never rounds a half away', () => {
+  // Half the vocabulary work plus one of two washes.
+  const progress = cellProgress(
+    day({
+      washes: { times: ['a'] },
+      vocab: { target: { new: 10, review: 0 }, sessions: [{ id: 'v1', at: 'x', new: 5, review: 0, minutes: 5 }] },
+    }),
+    [{ id: 't1', title: '作业', current: 1, total: 3 }],
+  )
+  assert.deepEqual(progress, { done: 1.8, total: 9 })
 })
 
 console.log('vocabulary target progress')

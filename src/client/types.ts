@@ -7,10 +7,20 @@
  * JSON on the wire is the real interface between them.
  */
 
-/** One of the eight completion cells. */
+/**
+ * One cell of the day's completion bar.
+ *
+ * `value` is a fraction, not a flag: vocabulary reports its weighted target
+ * progress and a task due that day reports how far along it is, so the bar can
+ * read `4.5/9`. `label` comes from the host, which owns the habit names and
+ * knows each task's title.
+ */
 export interface Cell {
+  /** A habit cell id, or `task:<id>` for a task due on the day. */
   readonly id: string
-  readonly done: boolean
+  readonly label: string
+  /** Fraction in `[0,1]`: 0 untouched, 1 complete, between = partial. */
+  readonly value: number
 }
 
 /** Vocabulary target progress for a day. */

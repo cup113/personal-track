@@ -25,6 +25,7 @@ import { CheckTile, LaundryTile, MealBoard } from './cards.tsx'
 import { Chip } from './Chip.tsx'
 import { DateNav } from './DateNav.tsx'
 import { EquipmentCard, PullupCard, RopeCard, RunTile } from './fitness.tsx'
+import { fractionText } from './format.ts'
 import { MediaTile, TaskTile } from './registry.tsx'
 import { DuolingoCard, VocabCard } from './study.tsx'
 import { GroupHeader, ProgressRing, Tile, TileHead } from './tile.tsx'
@@ -147,7 +148,7 @@ export function BoardBody({ client, openStats }: BoardBodyProps): JSX.Element {
       <div className="pt-strip">
         <ProgressRing
           ratio={day === undefined || day.progress.total === 0 ? 0 : day.progress.done / day.progress.total}
-          label={`${day?.progress.done ?? 0}/${day?.progress.total ?? 8}`}
+          label={`${fractionText(day?.progress.done ?? 0)}/${day?.progress.total ?? 8}`}
           sub="今日"
         />
         {day === undefined ? null : <Chip cells={day.cells} progress={day.progress} />}

@@ -13,7 +13,7 @@ import { useState, type JSX } from 'react'
 import type { MediaInput, MediaPatch, TaskInput, TaskPatch } from '../api.ts'
 import type { MediaEntry, TaskEntry } from '../types.ts'
 import { FieldForm, type FieldSpec } from './fields.tsx'
-import { weekEndKey } from './format.ts'
+import { dueLevelOf, fractionText, weekEndKey } from './format.ts'
 import { IconButton, Tile, TileHead } from './tile.tsx'
 
 /** Which editor, if any, is open. */
@@ -220,19 +220,41 @@ export interface TaskTileProps {
   readonly onRemove: (id: string) => void
 }
 
-/** Tasks and homework: open items first, with the derived state shown. */
+/**
+ * Order: unfinished first, each group by deadline ascending, and whatever has
+ * no deadline last. What is due soonest is what you must look at, and finished
+ * items sink out of the way without disappearing.
+ */
+function byDeadline(a: TaskEntry, b: TaskEntry): number {
+  const finished = (task: TaskEntry): number => (task.state === 'done' ? 1 : 0)
+  if (finished(a) !== finished(b)) return finished(a) - finished(b)
+  if (a.due === undefined || b.due === undefined) {
+    if (a.due !== b.due) return a.due === undefined ? 1 : -1
+    // Two undated tasks: newest first, as the list arrives.
+    return a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0
+  }
+  return a.due < b.due ? -1 : a.due > b.due ? 1 : 0
+}
+
+/** The deadline as the row shows it: "今天" when it is, else `MM-DD`. */
+function dueText(due: string, today: string): string {
+  return due === today ? '今天' : due.slice(5)
+}
+
+/** Tasks and homework: due soonest first, with the derived state shown. */
 export function TaskTile({ tasks, today, busy, onAdd, onPatch, onRemove }: TaskTileProps): JSX.Element {
   const [mode, setMode] = useState<Mode>({ kind: 'idle' })
   const open = tasks.filter(task => task.state !== 'done').length
   const overdue = tasks.filter(task => task.overdue).length
-  const ordered = [...tasks].sort((a, b) => {
-    const rank = (task: TaskEntry): number => (task.state === 'done' ? 2 : task.overdue ? 0 : 1)
-    return rank(a) - rank(b)
-  })
+  const dueToday = tasks.filter(task => task.due === today).length
+  const ordered = [...tasks].sort(byDeadline)
 
   return (
     <Tile span={2}>
-      <TileHead title="任务 / 作业" meta={`未完成 ${open}${overdue === 0 ? '' : ` · 逾期 ${overdue}`}`}>
+      <TileHead
+        title="任务 / 作业"
+        meta={`未完成 ${open}${dueToday === 0 ? '' : ` · 今日到期 ${dueToday}`}${overdue === 0 ? '' : ` · 逾期 ${overdue}`}`}
+      >
         <IconButton label="新建任务" disabled={busy} onClick={() => setMode({ kind: 'add' })}>＋</IconButton>
       </TileHead>
 
@@ -274,10 +296,36 @@ export function TaskTile({ tasks, today, busy, onAdd, onPatch, onRemove }: TaskT
               {task.title}
               {task.progress.total === undefined
                 ? null
-                : <span className="pt-muted"> {task.progress.current}/{task.progress.total}</span>}
+                : (
+                  <span className="pt-muted">
+                    {' '}
+                    {fractionText(task.progress.current)}/{fractionText(task.progress.total)}
+                  </span>
+                )}
               {task.category === undefined ? null : <span className="pt-muted"> · {task.category}</span>}
-              {task.due === undefined ? null : <span className="pt-muted"> · 截止 {task.due.slice(5)}</span>}
+              {task.due === undefined
+                ? null
+                : (
+                  <span className={`pt-due-${dueLevelOf(task.due, today)}`}>
+                    {' '}· 截止 {dueText(task.due, today)}
+                  </span>
+                )}
             </span>
+            {task.progress.total === undefined
+              ? null
+              : (
+                <span
+                  className="pt-task-bar"
+                  title={`进度 ${Math.round(Math.min(1, task.progress.current / task.progress.total) * 100)}%`}
+                >
+                  <span
+                    className="pt-task-bar-fill"
+                    style={{
+                      width: `${Math.max(0, Math.min(100, Math.round(task.progress.current / task.progress.total * 100)))}%`,
+                    }}
+                  />
+                </span>
+              )}
             {task.state === 'done'
               ? null
               : (
