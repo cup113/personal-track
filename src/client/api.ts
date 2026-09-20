@@ -34,6 +34,22 @@ export interface MealOptions {
   readonly price?: number
 }
 
+/** Session-bearing habits (running is single-valued and handled apart). */
+export type SessionKind = 'vocab' | 'duolingo' | 'rope' | 'pullup' | 'equipment' | 'washing'
+
+/** The vocabulary target for one habit day. */
+export interface VocabTarget {
+  readonly new: number
+  readonly review: number
+}
+
+/** Running entry options; the host defaults the duration. */
+export interface RunOptions {
+  readonly minutes?: number
+  readonly distanceKm: number
+  readonly avgHr?: number
+}
+
 /** The command surface the board receives through slot injection. */
 export interface HabitClient {
   clock(): Promise<ClockView>
@@ -45,6 +61,13 @@ export interface HabitClient {
   clearMeal(date: string, slot: MealSlot): Promise<StateView>
   setStock(pending: number): Promise<StateView>
   wash(date: string, pieces: number): Promise<StateView>
+  /** Append one session; the host stamps `at` and assigns the id. */
+  addSession(date: string, kind: SessionKind, entry: Record<string, unknown>): Promise<StateView>
+  patchSession(date: string, kind: SessionKind, id: string, patch: Record<string, unknown>): Promise<StateView>
+  removeSession(date: string, kind: SessionKind, id: string): Promise<StateView>
+  setVocabTarget(date: string, target: VocabTarget): Promise<StateView>
+  setRun(date: string, options: RunOptions): Promise<StateView>
+  clearRun(date: string): Promise<StateView>
 }
 
 /** Build a query string, dropping absent values. */
@@ -89,9 +112,26 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 /** Create the command surface handed to the board through slot injection. */
 export function createHabitClient(): HabitClient {
+  /**
+   * The host half is only replaced by a `dsh` restart, while this bundle hot
+   * reloads on its own. A board running against an older host would otherwise
+   * fail silently on a missing field, so say what to do instead.
+   */
+  const staleHost = (): never => {
+    throw new HabitApiError(0, 'habit/stale-host', '插件宿主半身未更新：请重启 dsh --profile web')
+  }
+
   return {
-    clock: () => request<ClockView>('/clock'),
-    state: date => request<StateView>(`/state${query({ date })}`),
+    clock: async () => {
+      const value = await request<ClockView>('/clock')
+      if (typeof value.today !== 'string') staleHost()
+      return value
+    },
+    state: async (date) => {
+      const value = await request<StateView>(`/state${query({ date })}`)
+      if (value.day === undefined || typeof value.day.date !== 'string') staleHost()
+      return value
+    },
     check: (date, habit) => request<StateView>('/check', body('POST', { date, habit })),
     uncheck: (date, habit, index) => request<StateView>(
       `/check${query({ date, habit, index })}`,
@@ -106,5 +146,17 @@ export function createHabitClient(): HabitClient {
     clearMeal: (date, slot) => request<StateView>(`/meal${query({ date, slot })}`, { method: 'DELETE' }),
     setStock: pending => request<StateView>('/laundry/stock', body('PATCH', { pending })),
     wash: (date, pieces) => request<StateView>('/laundry/wash', body('POST', { date, pieces })),
+    addSession: (date, kind, entry) => request<StateView>('/session', body('POST', { date, kind, entry })),
+    patchSession: (date, kind, id, patch) => request<StateView>('/session', body('PATCH', { date, kind, id, patch })),
+    removeSession: (date, kind, id) => request<StateView>(
+      `/session${query({ date, kind, id })}`,
+      { method: 'DELETE' },
+    ),
+    setVocabTarget: (date, target) => request<StateView>(
+      '/vocab-target',
+      body('PUT', { date, new: target.new, review: target.review }),
+    ),
+    setRun: (date, options) => request<StateView>('/run', body('PUT', { date, ...options })),
+    clearRun: date => request<StateView>(`/run${query({ date })}`, { method: 'DELETE' }),
   }
 }

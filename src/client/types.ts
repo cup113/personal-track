@@ -32,8 +32,9 @@ export interface Meal {
   readonly price?: number
 }
 
-/** A vocabulary study session. */
-export interface VocabSession {
+/** A vocabulary study session. Declared as a type alias (not an interface) so
+ *  it stays assignable to the generic session-entry shape. */
+export type VocabSession = {
   readonly id: string
   readonly at: string
   readonly new: number
@@ -42,7 +43,7 @@ export interface VocabSession {
 }
 
 /** A duolingo lesson. */
-export interface Lesson {
+export type Lesson = {
   readonly id: string
   readonly at: string
   readonly minutes: number
@@ -53,6 +54,31 @@ export interface Washing {
   readonly id: string
   readonly at: string
   readonly pieces: number
+}
+
+/** A jump-rope session. */
+export type RopeSession = {
+  readonly id: string
+  readonly at: string
+  readonly preset: 90 | 180
+  readonly seconds: number
+  readonly avgHr?: number
+}
+
+/** A pull-up session (metric = support time). */
+export type PullupSession = {
+  readonly id: string
+  readonly at: string
+  readonly seconds: number
+}
+
+/** A gym-equipment session. */
+export type EquipmentSession = {
+  readonly id: string
+  readonly at: string
+  readonly name: string
+  readonly reps: number
+  readonly weight?: number
 }
 
 /** The stored document for one habit day, as the UI reads it. */
@@ -70,6 +96,9 @@ export interface DayRecord {
     readonly sessions: readonly VocabSession[]
   }
   readonly duolingo: readonly Lesson[]
+  readonly rope: readonly RopeSession[]
+  readonly pullup: readonly PullupSession[]
+  readonly equipment: readonly EquipmentSession[]
   readonly run: {
     readonly at: string
     readonly minutes: number

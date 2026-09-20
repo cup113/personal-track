@@ -46,6 +46,24 @@ export function shiftKey(key: string, days: number): string {
   return `${moved.getUTCFullYear()}-${pad(moved.getUTCMonth() + 1)}-${pad(moved.getUTCDate())}`
 }
 
+/** Pace in minutes per kilometre; undefined when it cannot be computed. */
+export function paceOf(minutes: number, distanceKm: number): number | undefined {
+  if (!(minutes > 0) || !(distanceKm > 0)) return undefined
+  return minutes / distanceKm
+}
+
+/** `6'00"/km` for a pace, or an em dash when there is none. */
+export function paceLabel(pace: number | undefined): string {
+  if (pace === undefined) return '——'
+  let whole = Math.floor(pace)
+  let seconds = Math.round((pace - whole) * 60)
+  if (seconds === 60) {
+    seconds = 0
+    whole += 1
+  }
+  return `${whole}'${String(seconds).padStart(2, '0')}"/km`
+}
+
 /** Human text for the eight cells, used as dot tooltips. */
 export const CELL_LABELS: Record<string, string> = {
   wash1: '洗漱 1',

@@ -96,7 +96,10 @@ assert.equal(typeof body.component, 'function', 'the body is a component')
 // The board receives its commands through the registration's injection face.
 assert.equal(typeof body.spec.inject, 'function', 'the body declares an injection face')
 const face = body.spec.inject()
-for (const method of ['clock', 'state', 'check', 'uncheck', 'setMeal', 'clearMeal', 'setStock', 'wash']) {
+for (const method of [
+  'clock', 'state', 'check', 'uncheck', 'setMeal', 'clearMeal', 'setStock', 'wash',
+  'addSession', 'patchSession', 'removeSession', 'setVocabTarget', 'setRun', 'clearRun',
+]) {
   assert.equal(typeof face.client[method], 'function', `the face exposes ${method}()`)
 }
 

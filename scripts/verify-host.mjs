@@ -143,6 +143,37 @@ assert.equal(washed.body.day.day.washing.length, 1, 'and leaves a washing sessio
 assert.equal(washed.body.day.day.washing[0].pieces, 3)
 console.log('laundry ✓  (correction leaves no event; a wash decrements and records)')
 
+// --- training session kinds (M3) --------------------------------------------
+const rope = await api.call('POST', '/session', {
+  date: DATE, kind: 'rope', entry: { preset: 90, seconds: 45, avgHr: 130 },
+})
+assert.equal(rope.status, 200)
+assert.equal(rope.body.day.day.rope.length, 1)
+assert.equal(rope.body.day.day.rope[0].preset, 90, 'the preset stays a number, not a string')
+const rope180 = await api.call('POST', '/session', {
+  date: DATE, kind: 'rope', entry: { preset: 180, seconds: 95 },
+})
+assert.equal(rope180.body.day.day.rope.length, 2, 'several sets a day are allowed')
+
+const pullup = await api.call('POST', '/session', { date: DATE, kind: 'pullup', entry: { seconds: 32 } })
+assert.equal(pullup.body.day.day.pullup[0].seconds, 32)
+
+const equipment = await api.call('POST', '/session', {
+  date: DATE, kind: 'equipment', entry: { name: '划船机', reps: 30, weight: 40 },
+})
+assert.equal(equipment.body.day.day.equipment[0].name, '划船机')
+
+const badKind = await api.call('POST', '/session', { date: DATE, kind: 'swimming', entry: {} })
+assert.equal(badKind.status, 400, 'an unknown session kind is refused')
+assert.equal(badKind.body.error.code, 'habit/bad-request')
+console.log('training sessions ✓  (rope presets stay numeric, any number of sets, unknown kinds refused)')
+
+const changedRun = await api.call('PUT', '/run', { date: DATE, minutes: 25, distanceKm: 5 })
+assert.equal(changedRun.body.day.day.run.minutes, 25, 'an explicit duration wins over the default')
+const clearedRun = await api.call('DELETE', `/run?date=${DATE}`)
+assert.equal(clearedRun.body.day.day.run, null, 'the running entry can be cleared')
+console.log('running edit ✓  (explicit duration, then cleared)')
+
 // --- tasks (progress) and media (hard delete) --------------------------------
 const task = await api.call('POST', '/tasks', { title: '线代作业', category: '数学', due: '2026-09-20' })
 const taskId = task.body.entry.id

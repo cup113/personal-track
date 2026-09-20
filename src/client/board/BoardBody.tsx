@@ -7,11 +7,19 @@
  * slot registration's injection face, so the component never sees `ctx`.
  */
 import { useCallback, useEffect, useState, type JSX } from 'react'
-import { HabitApiError, type HabitClient, type MealSlot } from '../api.ts'
-import type { ClockView, Meal, StateView } from '../types.ts'
+import { HabitApiError, type HabitClient, type MealSlot, type SessionKind } from '../api.ts'
+import type { ClockView, Meal, StateView, VocabProgress } from '../types.ts'
 import { Chip } from './Chip.tsx'
 import { DateNav } from './DateNav.tsx'
 import { CheckRow, LaundryRow, MealRow, Section, ToggleRow } from './cards.tsx'
+import { EquipmentCard, PullupCard, RopeCard, RunCard } from './fitness.tsx'
+import { DuolingoCard, VocabCard } from './study.tsx'
+
+/** Shown until the first slice arrives. */
+const EMPTY_VOCAB: VocabProgress = {
+  doneNew: 0, doneReview: 0, targetNew: 0, targetReview: 0,
+  minutes: 0, ratio: 0, surplusNew: 0, surplusReview: 0, met: false,
+}
 
 /** The meal slots, in the order the board lists them. */
 const MEALS: readonly { slot: MealSlot; label: string }[] = [
@@ -109,6 +117,16 @@ export function BoardBody({ client }: BoardBodyProps): JSX.Element {
     void loadState(target)
   }
 
+  /** The handlers every session list shares, bound to one habit kind. */
+  const sessionHandlers = (kind: SessionKind) => ({
+    busy,
+    onAdd: (payload: Record<string, unknown>) => void act(() => client.addSession(date, kind, payload)),
+    onPatch: (id: string, payload: Record<string, unknown>) =>
+      void act(() => client.patchSession(date, kind, id, payload)),
+    onRemove: (id: string) => void act(() => client.removeSession(date, kind, id)),
+  })
+  const vocabSessions = sessionHandlers('vocab')
+
   return (
     <div className="pt-board">
       <DateNav date={date} today={clock.today} night={clock.nightTail} onChange={goTo} />
@@ -152,6 +170,37 @@ export function BoardBody({ client }: BoardBodyProps): JSX.Element {
             onClear={() => void act(() => client.clearMeal(date, slot))}
           />
         ))}
+      </Section>
+
+      <Section title="学习">
+        <VocabCard
+          target={day?.target ?? clock.config.defaultVocabTarget}
+          progress={day?.vocab ?? EMPTY_VOCAB}
+          sessions={record?.vocab?.sessions ?? []}
+          busy={busy}
+          onTarget={target => void act(() => client.setVocabTarget(date, target))}
+          onAdd={vocabSessions.onAdd}
+          onPatch={vocabSessions.onPatch}
+          onRemove={vocabSessions.onRemove}
+        />
+        <DuolingoCard lessons={record?.duolingo ?? []} {...sessionHandlers('duolingo')} />
+      </Section>
+
+      <Section title="健身">
+        <RunCard
+          run={record?.run ?? null}
+          defaultMinutes={clock.config.defaultRunMinutes}
+          busy={busy}
+          onSet={payload => void act(() => client.setRun(date, {
+            distanceKm: Number(payload.distanceKm),
+            ...(payload.minutes === undefined ? {} : { minutes: Number(payload.minutes) }),
+            ...(payload.avgHr === undefined ? {} : { avgHr: Number(payload.avgHr) }),
+          }))}
+          onClear={() => void act(() => client.clearRun(date))}
+        />
+        <RopeCard sessions={record?.rope ?? []} {...sessionHandlers('rope')} />
+        <PullupCard sessions={record?.pullup ?? []} {...sessionHandlers('pullup')} />
+        <EquipmentCard sessions={record?.equipment ?? []} {...sessionHandlers('equipment')} />
       </Section>
     </div>
   )

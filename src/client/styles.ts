@@ -40,6 +40,12 @@ const CSS = `
 .pt-input { width: 4.5em; border: 1px solid rgba(127,127,127,.4); background: rgba(127,127,127,.08); color: inherit; border-radius: 6px; padding: 2px 5px; font: inherit; font-size: 12px; }
 .pt-inline-form { display: flex; align-items: center; gap: 5px; padding: 7px 9px; border-top: 1px solid rgba(127,127,127,.18); }
 .pt-grow { flex: 1; }
+.pt-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px; padding: 7px 9px; border-top: 1px solid rgba(127,127,127,.18); }
+.pt-field { display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
+.pt-form-actions { display: flex; gap: 5px; }
+.pt-bar { height: 4px; margin: 0 9px 7px; border-radius: 3px; background: rgba(127,127,127,.22); overflow: hidden; }
+.pt-bar-fill { height: 100%; background: rgba(90,180,120,.9); transition: width .15s ease; }
+.pt-entry { background: rgba(127,127,127,.05); }
 `
 
 /** Inject the stylesheet once. */
