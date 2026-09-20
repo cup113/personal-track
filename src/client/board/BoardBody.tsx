@@ -11,12 +11,21 @@
  * which is what keeps a long habit list readable in a ~300px column.
  */
 import { useCallback, useEffect, useState, type JSX } from 'react'
-import { HabitApiError, type HabitClient, type SessionKind } from '../api.ts'
+import {
+  HabitApiError,
+  type HabitClient,
+  type MediaInput,
+  type MediaPatch,
+  type SessionKind,
+  type TaskInput,
+  type TaskPatch,
+} from '../api.ts'
 import type { ClockView, StateView, VocabProgress } from '../types.ts'
 import { CheckTile, LaundryTile, MealBoard, ShowerTile } from './cards.tsx'
 import { Chip } from './Chip.tsx'
 import { DateNav } from './DateNav.tsx'
 import { EquipmentCard, PullupCard, RopeCard, RunTile } from './fitness.tsx'
+import { MediaTile, TaskTile } from './registry.tsx'
 import { DuolingoCard, VocabCard } from './study.tsx'
 import { GroupHeader, Pills, ProgressRing, Tile, TileHead } from './tile.tsx'
 
@@ -27,7 +36,7 @@ const EMPTY_VOCAB: VocabProgress = {
 }
 
 /** The board's category filter. */
-type Category = 'all' | 'daily' | 'food' | 'study' | 'fitness'
+type Category = 'all' | 'daily' | 'food' | 'study' | 'fitness' | 'records'
 
 const CATEGORIES: readonly { readonly value: Category; readonly label: string }[] = [
   { value: 'all', label: '全部' },
@@ -35,6 +44,7 @@ const CATEGORIES: readonly { readonly value: Category; readonly label: string }[
   { value: 'food', label: '饮食' },
   { value: 'study', label: '学习' },
   { value: 'fitness', label: '健身' },
+  { value: 'records', label: '记录' },
 ]
 
 /** Props handed in by the slot registration's injection face. */
@@ -138,6 +148,12 @@ export function BoardBody({ client }: BoardBodyProps): JSX.Element {
   })
   const vocabSessions = sessionHandlers('vocab')
 
+  /** Registry writes answer with the list, so re-read the shown day after. */
+  const registryAct = (action: () => Promise<unknown>): void => void act(async () => {
+    await action()
+    return await client.state(date)
+  })
+
   return (
     <div className="pt-board">
       <div className="pt-strip">
@@ -230,6 +246,26 @@ export function BoardBody({ client }: BoardBodyProps): JSX.Element {
             <RopeCard sessions={record?.rope ?? []} {...sessionHandlers('rope')} />
             <PullupCard sessions={record?.pullup ?? []} {...sessionHandlers('pullup')} />
             <EquipmentCard sessions={record?.equipment ?? []} {...sessionHandlers('equipment')} />
+          </>
+        ) : null}
+
+        {show('records') ? (
+          <>
+            <GroupHeader label="记录" hint="跨日保留" />
+            <MediaTile
+              media={state?.media ?? []}
+              busy={busy}
+              onAdd={(input: MediaInput) => registryAct(() => client.addMedia(input))}
+              onPatch={(id, patch: MediaPatch) => registryAct(() => client.patchMedia(id, patch))}
+              onRemove={id => registryAct(() => client.removeMedia(id))}
+            />
+            <TaskTile
+              tasks={state?.tasks ?? []}
+              busy={busy}
+              onAdd={(input: TaskInput) => registryAct(() => client.addTask(input))}
+              onPatch={(id, patch: TaskPatch) => registryAct(() => client.patchTask(id, patch))}
+              onRemove={id => registryAct(() => client.removeTask(id))}
+            />
           </>
         ) : null}
 

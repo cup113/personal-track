@@ -19,8 +19,17 @@ import type {
   MediaRecord,
   TaskRecord,
 } from './domain.ts'
-import { dayRecord } from './domain.ts'
-import { cellProgress, dayCells, vocabProgress, type Cell, type VocabProgress } from './derive.ts'
+import { dayRecord, mediaRecord, taskRecord } from './domain.ts'
+import {
+  cellProgress,
+  dayCells,
+  isOverdue,
+  taskState,
+  vocabProgress,
+  type Cell,
+  type TaskState,
+  type VocabProgress,
+} from './derive.ts'
 import type { DayKey } from './daykey.ts'
 
 /** The laundry stock's key inside the counters table. */
@@ -47,7 +56,16 @@ export interface StateView {
   readonly day: DayView
   readonly stock: CounterRecord
   readonly media: MediaRecord[]
-  readonly tasks: TaskRecord[]
+  readonly tasks: TaskView[]
+}
+
+/**
+ * A task plus both states derived from it, computed here so the derivation
+ * rules live in exactly one place (docs/adr/0002-derived-state-not-stored.md).
+ */
+export interface TaskView extends TaskRecord {
+  readonly state: TaskState
+  readonly overdue: boolean
 }
 
 /** The store surface the API and the statistics use. */
@@ -67,10 +85,12 @@ export interface HabitStore {
   /** Correction: the stock only — no event, no history. */
   setStock(pending: number, at: string): Promise<CounterRecord>
   putMedia(record: MediaRecord): Promise<void>
-  patchMedia(id: string, patch: Partial<Omit<MediaRecord, 'id'>>): Promise<MediaRecord>
+  /** Patch fields; `null` clears one (see {@link withoutCleared}). */
+  patchMedia(id: string, patch: Record<string, unknown>): Promise<MediaRecord>
   deleteMedia(id: string): Promise<boolean>
   putTask(record: TaskRecord): Promise<void>
-  patchTask(id: string, patch: Partial<Omit<TaskRecord, 'id'>>): Promise<TaskRecord>
+  /** Patch fields; `null` clears one, and completion follows progress. */
+  patchTask(id: string, patch: Record<string, unknown>): Promise<TaskRecord>
   deleteTask(id: string): Promise<boolean>
   newId(): string
 }
@@ -88,6 +108,20 @@ const SESSION_FIELD = {
 const NO_PROGRESS: VocabProgress = {
   doneNew: 0, doneReview: 0, targetNew: 0, targetReview: 0,
   minutes: 0, ratio: 0, surplusNew: 0, surplusReview: 0, met: false,
+}
+
+/**
+ * Drop keys a patch explicitly cleared with `null`.
+ *
+ * PATCH semantics: an absent key means "leave it", `null` means "remove it" —
+ * otherwise a due date, a rating or a note could never be taken back.
+ */
+function withoutCleared(record: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(record)) {
+    if (value !== null) next[key] = value
+  }
+  return next
 }
 
 /** Build the store over an opened domain. */
@@ -187,7 +221,11 @@ export function createHabitStore(domain: HabitDomain, config: Config): HabitStor
         },
         stock: stock(),
         media: byCreatedAtDesc([...media.entries()].map(([, record]) => record)),
-        tasks: byCreatedAtDesc([...tasks.entries()].map(([, record]) => record)),
+        tasks: byCreatedAtDesc([...tasks.entries()].map(([, record]) => record)).map(record => ({
+          ...record,
+          state: taskState(record),
+          overdue: isOverdue(record, today),
+        })),
       }
     },
 
@@ -236,13 +274,35 @@ export function createHabitStore(domain: HabitDomain, config: Config): HabitStor
 
     putMedia: record => media.put(record.id, record),
 
-    patchMedia: (id, patch) => media.update(id, current => ({ ...current, ...patch, id })),
+    patchMedia: (id, patch) => media.update(id, current =>
+      mediaRecord.parse(withoutCleared({ ...current, ...patch, id }))),
 
     deleteMedia: id => media.delete(id),
 
     putTask: record => tasks.put(record.id, record),
 
-    patchTask: (id, patch) => tasks.update(id, current => ({ ...current, ...patch, id })),
+    patchTask: (id, patch) => tasks.update(id, (current) => {
+      const merged: Record<string, unknown> = { ...current, ...patch, id }
+      // `progress` merges field by field; every other key replaces wholesale.
+      if (patch.progress !== undefined && patch.progress !== null) {
+        merged.progress = withoutCleared({
+          ...current.progress,
+          ...(patch.progress as Record<string, unknown>),
+        })
+      }
+      const parsed = taskRecord.parse(withoutCleared(merged))
+      // Completion is derived from progress, so the instant it happened is kept
+      // in step here rather than trusted from every caller.
+      const done = taskState(parsed) === 'done'
+      if (done && parsed.completedAt === undefined) {
+        return { ...parsed, completedAt: new Date().toISOString() }
+      }
+      if (!done && parsed.completedAt !== undefined) {
+        const { completedAt: _cleared, ...rest } = parsed
+        return rest
+      }
+      return parsed
+    }),
 
     deleteTask: id => tasks.delete(id),
 

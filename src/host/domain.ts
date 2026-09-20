@@ -132,7 +132,7 @@ export const taskRecord = z.object({
   title: z.string().min(1),
   category: z.string().optional(),
   /** Due date as a plain `YYYY-MM-DD`; overdue-ness is derived, never stored. */
-  due: z.string().optional(),
+  due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'due must be YYYY-MM-DD').optional(),
   progress: z.object({
     current: z.number().int().nonnegative().default(0),
     total: z.number().int().positive().optional(),

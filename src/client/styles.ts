@@ -190,6 +190,15 @@ const CSS = `
 .pt-field { display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
 .pt-form-actions { display: flex; gap: 5px; }
 
+/* ---- registry badges ------------------------------------------------- */
+.pt-badge {
+  display: inline-block; padding: 0 5px; border-radius: 5px; font-size: 10px;
+  border: 1px solid var(--pt-line-strong); background: var(--pt-surface-2);
+}
+.pt-badge-ok { border-color: var(--pt-accent-line); background: var(--pt-accent-soft); }
+.pt-badge-warn { border-color: rgba(220,140,90,.55); background: rgba(220,140,90,.18); }
+.pt-badge-dim { opacity: .55; }
+
 /* ---- narrow fallback ------------------------------------------------- */
 @media (max-width: 260px) {
   .pt-grid { grid-template-columns: minmax(0,1fr); }

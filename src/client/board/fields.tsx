@@ -12,10 +12,11 @@ import { useState, type JSX } from 'react'
 export interface FieldSpec {
   readonly name: string
   readonly label: string
-  /** `time` renders a clock input whose value travels as `time` (`HH:mm`). */
-  readonly kind: 'number' | 'text' | 'select' | 'time'
+  /** `time` and `date` render native pickers; `time` travels as `HH:mm`. */
+  readonly kind: 'number' | 'text' | 'select' | 'time' | 'date'
   readonly step?: number
   readonly min?: number
+  readonly max?: number
   /** Select options; `numericOptions` converts the chosen value to a number. */
   readonly options?: readonly { readonly value: string; readonly label: string }[]
   readonly numericOptions?: boolean
@@ -42,6 +43,9 @@ function payloadOf(
       if (!Number.isFinite(parsed)) return { payload, problem: `${field.label}必须是数字` }
       if (field.min !== undefined && parsed < field.min) {
         return { payload, problem: `${field.label}不能小于 ${field.min}` }
+      }
+      if (field.max !== undefined && parsed > field.max) {
+        return { payload, problem: `${field.label}不能大于 ${field.max}` }
       }
       payload[field.name] = parsed
     } else {
@@ -112,9 +116,14 @@ export function FieldForm({
             : (
               <input
                 className="pt-input"
-                type={field.kind === 'number' ? 'number' : field.kind === 'time' ? 'time' : 'text'}
+                type={field.kind === 'number'
+                  ? 'number'
+                  : field.kind === 'time'
+                    ? 'time'
+                    : field.kind === 'date' ? 'date' : 'text'}
                 step={field.step}
                 min={field.min}
+                max={field.max}
                 placeholder={field.placeholder}
                 value={values[field.name] ?? ''}
                 onChange={event => set(field.name, event.target.value)}

@@ -5,7 +5,7 @@
  * to re-read after a write. Failures arrive as `HabitApiError`, carrying the
  * host's own code so the UI can say something specific.
  */
-import type { ClockView, StateView } from './types.ts'
+import type { ClockView, MediaEntry, StateView, TaskEntry } from './types.ts'
 
 /** The API prefix this plugin owns on the GUI host. */
 const BASE = '/habit/api'
@@ -72,6 +72,65 @@ export interface HabitClient {
   setVocabTarget(date: string, target: VocabTarget): Promise<StateView>
   setRun(date: string, options: RunOptions): Promise<StateView>
   clearRun(date: string): Promise<StateView>
+  /** Registries: the lists are global, so these answer with the list itself. */
+  addMedia(input: MediaInput): Promise<MediaResult>
+  patchMedia(id: string, patch: MediaPatch): Promise<MediaResult>
+  removeMedia(id: string): Promise<MediaResult>
+  addTask(input: TaskInput): Promise<TaskResult>
+  patchTask(id: string, patch: TaskPatch): Promise<TaskResult>
+  removeTask(id: string): Promise<TaskResult>
+}
+
+/** Fields a new media entry carries. */
+export interface MediaInput {
+  readonly kind: 'film' | 'book'
+  readonly title: string
+  readonly status?: 'active' | 'done' | 'dropped'
+  readonly rating?: number
+  readonly notes?: string
+}
+
+/** A media patch; `null` clears an optional field. */
+export interface MediaPatch {
+  readonly kind?: 'film' | 'book'
+  readonly title?: string
+  readonly status?: 'active' | 'done' | 'dropped'
+  readonly rating?: number | null
+  readonly notes?: string | null
+  readonly startedAt?: string | null
+  readonly finishedAt?: string | null
+}
+
+/** Fields a new task carries. */
+export interface TaskInput {
+  readonly title: string
+  readonly category?: string
+  readonly due?: string
+  readonly progress?: { readonly current?: number; readonly total?: number }
+  readonly notes?: string
+}
+
+/** A task patch; `null` clears an optional field, `progress` merges. */
+export interface TaskPatch {
+  readonly title?: string
+  readonly category?: string | null
+  readonly due?: string | null
+  readonly progress?: { readonly current?: number; readonly total?: number | null }
+  readonly notes?: string | null
+}
+
+/** The media list a registry call answers with. */
+export interface MediaResult {
+  readonly ok: true
+  readonly media: readonly MediaEntry[]
+  readonly entry?: MediaEntry
+}
+
+/** The task list a registry call answers with. */
+export interface TaskResult {
+  readonly ok: true
+  readonly tasks: readonly TaskEntry[]
+  readonly entry?: TaskEntry
 }
 
 /** Build a query string, dropping absent values. */
@@ -172,5 +231,11 @@ export function createHabitClient(): HabitClient {
     ),
     setRun: (date, options) => request<StateView>('/run', body('PUT', { date, ...options })),
     clearRun: date => request<StateView>(`/run${query({ date })}`, { method: 'DELETE' }),
+    addMedia: input => request<MediaResult>('/media', body('POST', input)),
+    patchMedia: (id, patch) => request<MediaResult>('/media', body('PATCH', { id, patch })),
+    removeMedia: id => request<MediaResult>(`/media${query({ id })}`, { method: 'DELETE' }),
+    addTask: input => request<TaskResult>('/tasks', body('POST', input)),
+    patchTask: (id, patch) => request<TaskResult>('/tasks', body('PATCH', { id, patch })),
+    removeTask: id => request<TaskResult>(`/tasks${query({ id })}`, { method: 'DELETE' }),
   }
 }

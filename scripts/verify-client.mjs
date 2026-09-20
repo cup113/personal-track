@@ -99,6 +99,7 @@ const face = body.spec.inject()
 for (const method of [
   'clock', 'state', 'check', 'uncheck', 'editCheck', 'setMeal', 'clearMeal', 'setStock', 'wash',
   'addSession', 'patchSession', 'removeSession', 'setVocabTarget', 'setRun', 'clearRun',
+  'addMedia', 'patchMedia', 'removeMedia', 'addTask', 'patchTask', 'removeTask',
 ]) {
   assert.equal(typeof face.client[method], 'function', `the face exposes ${method}()`)
 }

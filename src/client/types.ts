@@ -138,7 +138,10 @@ export interface MediaEntry {
   readonly createdAt: string
 }
 
-/** One task entry. */
+/** A task's lifecycle state, derived by the host from its progress. */
+export type TaskState = 'todo' | 'doing' | 'done'
+
+/** One task entry: the record plus both states the host derives from it. */
 export interface TaskEntry {
   readonly id: string
   readonly title: string
@@ -148,6 +151,10 @@ export interface TaskEntry {
   readonly completedAt?: string
   readonly notes?: string
   readonly createdAt: string
+  /** Derived: 待办 / 进行中 / 完成. */
+  readonly state: TaskState
+  /** Derived: past its due date and not finished. */
+  readonly overdue: boolean
 }
 
 /** The full state slice every read and mutation answers with. */

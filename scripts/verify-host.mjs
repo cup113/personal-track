@@ -209,20 +209,51 @@ const clearedRun = await api.call('DELETE', `/run?date=${DATE}`)
 assert.equal(clearedRun.body.day.day.run, null, 'the running entry can be cleared')
 console.log('running edit ✓  (explicit duration, then cleared)')
 
-// --- tasks (progress) and media (hard delete) --------------------------------
+// --- tasks (derived state) and media (hard delete) ---------------------------
 const task = await api.call('POST', '/tasks', { title: '线代作业', category: '数学', due: '2026-09-20' })
 const taskId = task.body.entry.id
-assert.equal(task.body.entry.progress.current, 0)
+assert.equal(task.body.tasks[0].state, 'todo', 'a fresh task reads as 待办')
+assert.equal(task.body.tasks[0].overdue, false)
+const ofTask = response => response.body.tasks.find(entry => entry.id === taskId)
+
 const progressed = await api.call('PATCH', '/tasks', { id: taskId, patch: { progress: { current: 3, total: 5 } } })
-assert.equal(progressed.body.entry.progress.total, 5)
+assert.equal(ofTask(progressed).progress.total, 5, 'progress merges field by field')
+assert.equal(ofTask(progressed).state, 'doing', 'partial progress reads as 进行中')
+assert.equal(ofTask(progressed).completedAt, undefined, 'nothing finished yet')
+
+const finished = await api.call('PATCH', '/tasks', { id: taskId, patch: { progress: { current: 5 } } })
+assert.equal(ofTask(finished).state, 'done', 'reaching the target completes it')
+assert.equal(typeof ofTask(finished).completedAt, 'string', 'and the store stamps the completion instant')
+
+const reopened = await api.call('PATCH', '/tasks', { id: taskId, patch: { progress: { current: 2 } } })
+assert.equal(ofTask(reopened).state, 'doing')
+assert.equal(ofTask(reopened).completedAt, undefined, 'reopening clears the completion instant')
+
+const clearedFields = await api.call('PATCH', '/tasks', { id: taskId, patch: { due: null, category: null } })
+assert.equal(ofTask(clearedFields).due, undefined, 'null clears the due date')
+assert.equal(ofTask(clearedFields).category, undefined, 'null clears the category')
+const badDue = await api.call('PATCH', '/tasks', { id: taskId, patch: { due: '下周三' } })
+assert.equal(badDue.status, 400, 'a malformed due date is refused')
+
+const late = await api.call('POST', '/tasks', { title: '补交作业', due: '2020-01-01' })
+const lateId = late.body.entry.id
+assert.equal(late.body.tasks.find(entry => entry.id === lateId).overdue, true, 'past due and unfinished')
+await api.call('PATCH', '/tasks', { id: lateId, patch: { progress: { current: 1 } } })
+const lateList = await api.call('GET', '/tasks')
+assert.equal(lateList.body.tasks.find(entry => entry.id === lateId).overdue, false, 'finishing clears overdue')
 
 const book = await api.call('POST', '/media', { kind: 'book', title: '设计数据密集型应用' })
 const bookId = book.body.entry.id
 assert.equal(book.body.entry.status, 'active')
+const rated = await api.call('PATCH', '/media', { id: bookId, patch: { rating: 5, status: 'done' } })
+assert.equal(rated.body.entry.rating, 5)
+assert.equal(rated.body.entry.status, 'done')
+const unrated = await api.call('PATCH', '/media', { id: bookId, patch: { rating: null } })
+assert.equal(unrated.body.entry.rating, undefined, 'null clears the rating')
 const dropped = await api.call('DELETE', `/media?id=${bookId}`)
 assert.equal(dropped.body.removed, true, 'media delete is a hard delete')
 assert.equal(dropped.body.media.length, 0)
-console.log('tasks + media ✓  (progress, and a hard delete with no residue)')
+console.log('tasks + media ✓  (derived state, completion instant, null clears, hard delete)')
 
 // --- failure shapes ----------------------------------------------------------
 const unknown = await api.call('GET', '/nope')
@@ -262,7 +293,11 @@ assert.equal(reloaded.body.day.day.washes.times.length, 2, 'checks survive a res
 assert.equal(clockOf(reloaded.body.day.day.washes.times[0]), '01:30', 'including an edited night-tail time')
 assert.deepEqual(reloaded.body.day.target, { new: 10, review: 5 })
 assert.equal(reloaded.body.stock.pending, 2, 'the laundry stock survives a restart')
-assert.equal(reloaded.body.tasks.length, 1)
+assert.equal(reloaded.body.tasks.length, 2, 'tasks survive a restart')
+assert.equal(
+  reloaded.body.tasks.find(entry => entry.id === lateId).state, 'done',
+  'and their derived state is recomputed on read',
+)
 await restarted.stop()
 console.log('restart ✓  (everything re-read from the medium)')
 

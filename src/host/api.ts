@@ -424,7 +424,16 @@ export function createApiHandler(deps: ApiDeps): WebRoute['handler'] {
 
       case 'PATCH /media': {
         const body = parse(z.object({ id: z.string().min(1), patch: z.unknown() }), await readJson(req), 'media patch')
-        const patch = parse(mediaRecord.omit({ id: true, createdAt: true }).partial(), body.patch, 'media patch')
+        // `null` clears an optional field; an absent key leaves it alone.
+        const patch = parse(z.object({
+          kind: z.enum(['film', 'book']).optional(),
+          title: z.string().min(1).optional(),
+          status: z.enum(['active', 'done', 'dropped']).optional(),
+          rating: z.number().int().min(1).max(5).nullable().optional(),
+          startedAt: z.string().nullable().optional(),
+          finishedAt: z.string().nullable().optional(),
+          notes: z.string().nullable().optional(),
+        }), body.patch, 'media patch')
         const entry = await store.patchMedia(body.id, patch)
         sendJson(res, 200, { ok: true, media: store.view(today(), today()).media, entry })
         return
@@ -454,7 +463,17 @@ export function createApiHandler(deps: ApiDeps): WebRoute['handler'] {
 
       case 'PATCH /tasks': {
         const body = parse(z.object({ id: z.string().min(1), patch: z.unknown() }), await readJson(req), 'task patch')
-        const patch = parse(taskRecord.omit({ id: true, createdAt: true }).partial(), body.patch, 'task patch')
+        // `null` clears an optional field; `progress` merges field by field.
+        const patch = parse(z.object({
+          title: z.string().min(1).optional(),
+          category: z.string().nullable().optional(),
+          due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'due must be YYYY-MM-DD').nullable().optional(),
+          progress: z.object({
+            current: z.number().int().nonnegative().optional(),
+            total: z.number().int().positive().nullable().optional(),
+          }).optional(),
+          notes: z.string().nullable().optional(),
+        }), body.patch, 'task patch')
         const entry = await store.patchTask(body.id, patch)
         sendJson(res, 200, { ok: true, tasks: store.view(today(), today()).tasks, entry })
         return
