@@ -27,7 +27,24 @@ const CSS = `
   font-size: 13px; line-height: 1.45;
 }
 .pt-board { display: flex; flex-direction: column; gap: 9px; padding: 10px 10px 26px; }
-.pt-panel { display: flex; flex-direction: column; gap: 12px; padding: 16px 18px 32px; }
+/*
+ * The main panel scrolls itself.
+ *
+ * The shell's centre column is a flex column with overflow:hidden and provides
+ * no scroller of its own — the occupant of the 'main' slot owns that region
+ * (the Conversation scrolls inside itself the same way). The slot's anchor is
+ * display:contents, so this element is laid out as a direct flex item of that
+ * column. min-height:0 is the load-bearing part: a flex item's automatic
+ * minimum size is its content, so without it the panel refuses to shrink and
+ * simply overflows the clipping column, where overflow-y:auto never engages.
+ *
+ * The sidebar board needs none of this: a dock pane body is its own
+ * overflow:auto scroller.
+ */
+.pt-panel {
+  display: flex; flex-direction: column; gap: 12px; padding: 16px 18px 32px;
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+}
 
 /* ---- shared atoms ---------------------------------------------------- */
 .pt-muted { opacity: .6; }
