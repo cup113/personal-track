@@ -1,0 +1,6 @@
+# pnpm 11 reads build allowances from here (not from package.json).
+# esbuild's postinstall only verifies/downloads its native binary; this repo
+# invokes that binary directly from scripts/build.mjs, so the postinstall is
+# unnecessary — and the DSH file sandbox blocks its piped child spawn anyway.
+allowBuilds:
+  esbuild: false

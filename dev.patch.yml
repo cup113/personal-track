@@ -1,0 +1,16 @@
+# Ephemeral development overlay (no install needed).
+#
+# `--patch` is a LAUNCHER-level option and must precede the app arguments:
+#   dsh --profile web --patch D:/Projects/personal-track/dev.patch.yml
+# (`dsh web --patch …` forwards --patch to the *web app*, which rejects it with
+#  "unknown option '--patch'".)
+#
+# For the persistent, restart-once route use instead:
+#   dsh plugin --profile web add link:D:/Projects/personal-track
+#
+# The path must be absolute. The Loader row points at the built host entry; the
+# nearest package.json (this one) supplies the browser bundle id and the
+# `dsh.client` declaration, so the client half is served from `lib/client.js`.
+- insert:
+    - id: personal-track
+      name: 'D:/Projects/personal-track/lib/index.js'

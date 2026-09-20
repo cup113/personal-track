@@ -1,0 +1,8 @@
+# Vendored upstream reference docs (copied from ../deepseek-harness/docs, not tracked)
+.dsh-docs/
+
+# Build output, dependencies, and local tool state
+node_modules/
+lib/
+.pnpm-store/
+*.tsbuildinfo
