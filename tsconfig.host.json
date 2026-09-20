@@ -10,8 +10,9 @@
     "skipLibCheck": true,
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
+    "allowImportingTsExtensions": true,
     "noUncheckedIndexedAccess": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/host/**/*.ts"]
+  "include": ["src/host/**/*.ts", "tests/**/*.ts"]
 }

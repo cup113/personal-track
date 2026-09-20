@@ -1,0 +1,158 @@
+/**
+ * Derived values — everything the plugin reports that is *not* stored.
+ *
+ * See docs/adr/0002-derived-state-not-stored.md: storing any of these would
+ * create a second source of truth that every write path must maintain, and it
+ * would break "backfill recomputes immediately".
+ */
+import type { DayRecord, TaskRecord } from './domain.ts'
+import { shiftDayKey, type DayKey } from './daykey.ts'
+
+/** The eight cells the board's completion counter is built from. */
+export type CellId =
+  | 'wash1' | 'wash2' | 'shower'
+  | 'breakfast' | 'lunch' | 'dinner'
+  | 'vocab' | 'duolingo'
+
+/** The fixed cell inventory: hard-coded in v1 by decision. */
+export const CELL_IDS: readonly CellId[] = [
+  'wash1', 'wash2', 'shower', 'breakfast', 'lunch', 'dinner', 'vocab', 'duolingo',
+]
+
+/** How many cells a day has. */
+export const CELL_TOTAL = CELL_IDS.length
+
+/** One cell's state. */
+export interface Cell {
+  readonly id: CellId
+  readonly done: boolean
+}
+
+/** Vocabulary target progress for one day. */
+export interface VocabProgress {
+  readonly doneNew: number
+  readonly doneReview: number
+  readonly targetNew: number
+  readonly targetReview: number
+  readonly minutes: number
+  /** Completion ratio, capped at 1. */
+  readonly ratio: number
+  /** Amount beyond the target, reported separately. */
+  readonly surplusNew: number
+  readonly surplusReview: number
+  /** True once the summed target is met. */
+  readonly met: boolean
+}
+
+/** Task lifecycle state, derived from progress. */
+export type TaskState = 'todo' | 'doing' | 'done'
+
+/** Vocabulary progress; the target block is absent until a day has one. */
+export function vocabProgress(day: DayRecord | undefined): VocabProgress | undefined {
+  const vocab = day?.vocab
+  if (vocab === undefined) return undefined
+  let doneNew = 0
+  let doneReview = 0
+  let minutes = 0
+  for (const session of vocab.sessions) {
+    doneNew += session.new
+    doneReview += session.review
+    minutes += session.minutes
+  }
+  const targetNew = vocab.target.new
+  const targetReview = vocab.target.review
+  const target = targetNew + targetReview
+  const done = doneNew + doneReview
+  return {
+    doneNew,
+    doneReview,
+    targetNew,
+    targetReview,
+    minutes,
+    ratio: target <= 0 ? (done > 0 ? 1 : 0) : Math.min(1, done / target),
+    surplusNew: Math.max(0, doneNew - targetNew),
+    surplusReview: Math.max(0, doneReview - targetReview),
+    met: target <= 0 ? done > 0 : done >= target,
+  }
+}
+
+/** Duolingo's presence target: at least one lesson on the day. */
+export function duolingoMet(day: DayRecord | undefined): boolean {
+  return (day?.duolingo.length ?? 0) > 0
+}
+
+/** The eight cells and whether each is satisfied. */
+export function dayCells(day: DayRecord | undefined): Cell[] {
+  const washes = day?.washes.times.length ?? 0
+  const meals = day?.meals
+  return [
+    { id: 'wash1', done: washes >= 1 },
+    { id: 'wash2', done: washes >= 2 },
+    { id: 'shower', done: day?.shower.at != null },
+    { id: 'breakfast', done: meals?.breakfast !== undefined },
+    { id: 'lunch', done: meals?.lunch !== undefined },
+    { id: 'dinner', done: meals?.dinner !== undefined },
+    { id: 'vocab', done: vocabProgress(day)?.met ?? false },
+    { id: 'duolingo', done: duolingoMet(day) },
+  ]
+}
+
+/** Completed-cell count for the board's `n/8` chip. */
+export function cellProgress(day: DayRecord | undefined): { done: number; total: number } {
+  const cells = dayCells(day)
+  return { done: cells.filter(cell => cell.done).length, total: CELL_TOTAL }
+}
+
+/** A perfect day satisfies every cell. */
+export function isPerfectDay(day: DayRecord | undefined): boolean {
+  return dayCells(day).every(cell => cell.done)
+}
+
+/** Task state derived from progress (never stored). */
+export function taskState(task: TaskRecord): TaskState {
+  const { current, total } = task.progress
+  if (total === undefined) return current > 0 ? 'done' : 'todo'
+  if (current <= 0) return 'todo'
+  return current >= total ? 'done' : 'doing'
+}
+
+/** Overdue: past its due date and not finished. */
+export function isOverdue(task: TaskRecord, today: DayKey): boolean {
+  if (task.due === undefined) return false
+  if (taskState(task) === 'done') return false
+  return task.due < today
+}
+
+/** Pace in minutes per kilometre; undefined when it cannot be computed. */
+export function paceMinPerKm(minutes: number, distanceKm: number): number | undefined {
+  if (!(minutes > 0) || !(distanceKm > 0)) return undefined
+  return minutes / distanceKm
+}
+
+/** Format a pace as `m'ss"/km` for stats copy. */
+export function formatPace(pace: number | undefined): string | undefined {
+  if (pace === undefined) return undefined
+  const whole = Math.floor(pace)
+  const seconds = Math.round((pace - whole) * 60)
+  return seconds === 60
+    ? `${whole + 1}'00"/km`
+    : `${whole}'${String(seconds).padStart(2, '0')}"/km`
+}
+
+/**
+ * Consecutive satisfied habit days ending at `endKey` (inclusive).
+ * A day with no record, or one that fails `isDone`, breaks the run.
+ */
+export function streakFor(
+  endKey: DayKey,
+  isDone: (key: DayKey) => boolean,
+  maxDays = 3650,
+): number {
+  let streak = 0
+  let key = endKey
+  while (streak < maxDays && isDone(key)) {
+    streak += 1
+    key = shiftDayKey(key, -1)
+  }
+  return streak
+}
