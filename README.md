@@ -92,3 +92,7 @@ docs/adr/    0001 树外传输 · 0002 状态派生不落库
   其他 `@deepseek-ai/*` 一律 `import type`，构建期擦除。跨插件取值一律经 `ctx` 服务或 slots。
 - **SlotMap 是按 import 做声明合并的**：用到某个 slot 就必须 import 声明它的包（例如
   `sidebar.panellist` 在 `@deepseek-ai/dsh-client-ui-sidebar/client`），否则类型上根本不存在。
+- **`ctx.<服务>` 每一个都要写进客户端插件的 `inject` 导出**：声明合并让类型随时可见，但 cordis
+  运行时只解析 inject 集合里的服务名，漏写要到真正访问那一刻才抛
+  `cannot get property "…" without inject`（统计按钮的 `ctx.layout` 就这样漏过）。`scripts/verify-client.mjs`
+  的假 context 是带同款守卫的 Proxy，未声明的访问会在 facade 测试里当场炸掉。

@@ -20,8 +20,15 @@ import { BoardBody } from './board/BoardBody.tsx'
 import { StatsIcon, StatsPanel } from './board/stats-panel.tsx'
 import { ensureBoardStyles } from './styles.ts'
 
-/** Services that must be live before `apply` runs. */
-export const inject = ['slots', 'sidebarRightTabs']
+/**
+ * Services that must be live before `apply` runs.
+ *
+ * Every `ctx.<prop>` service access needs its name here — cordis resolves
+ * service props through the fiber's inject set and throws
+ * `cannot get property "prop" without inject` otherwise. `ctx.layout` backs
+ * `openStats`, so it is required alongside the two registration faces.
+ */
+export const inject = ['slots', 'sidebarRightTabs', 'layout']
 
 /** Stable tab-type id; it keys the body slot registration. */
 const BOARD_ID = 'personal-track-board'

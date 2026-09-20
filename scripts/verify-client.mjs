@@ -46,7 +46,7 @@ assert.equal(typeof loaded.factory, 'function', 'the facade receives a factory')
 const exports_ = loaded.factory(require)
 
 assert.equal(typeof exports_.apply, 'function', 'the client half exports apply')
-assert.deepEqual(exports_.inject, ['slots', 'sidebarRightTabs'], 'client half injects the two services it uses')
+assert.deepEqual(exports_.inject, ['slots', 'sidebarRightTabs', 'layout'], 'client half injects exactly the services it touches')
 
 const seen = { tabTypes: [], slotRegistrations: [], effects: 0, selectedPanels: [] }
 
@@ -78,7 +78,18 @@ const ctx = {
   },
 }
 
-exports_.apply(ctx)
+// Guard the context the way cordis does: a service prop resolves only when the
+// plugin declared it in `inject`, otherwise the proxy throws. A plain fake
+// object hides undeclared-service bugs (the openStats crash shipped this way).
+const guardedCtx = new Proxy(ctx, {
+  get(_target, prop) {
+    if (typeof prop !== 'string') return undefined
+    if (prop === 'effect' || exports_.inject.includes(prop)) return ctx[prop]
+    throw new Error(`cannot get property "${prop}" without inject`)
+  },
+})
+
+exports_.apply(guardedCtx)
 
 assert.equal(seen.effects, 4, 'apply registers four effects (tab type, board, stats panel, sidebar entry)')
 assert.equal(appended.length, 1, 'apply injects the stylesheet exactly once')
