@@ -9,11 +9,11 @@
  * when the record actually had it**, so a patch that leaves a field alone can
  * never silently clear it.
  */
-import { useState, type JSX } from 'react'
+import { useState, type JSX, type PointerEvent as ReactPointerEvent } from 'react'
 import type { MediaInput, MediaPatch, TaskInput, TaskPatch } from '../api.ts'
 import type { MediaEntry, TaskEntry } from '../types.ts'
 import { FieldForm, type FieldSpec } from './fields.tsx'
-import { dueLevelOf, fractionText, weekEndKey } from './format.ts'
+import { dueLevelOf, fractionText, timeOf, weekEndKey } from './format.ts'
 import { IconButton, Tile, TileHead } from './tile.tsx'
 
 /** Which editor, if any, is open. */
@@ -71,9 +71,6 @@ function newTaskFields(today: string): readonly FieldSpec[] {
 
 /** Display text for a media status. */
 const MEDIA_STATUS: Record<string, string> = { active: '在列', done: '完成', dropped: '弃' }
-
-/** Display text for a derived task state. */
-const TASK_STATE: Record<string, string> = { todo: '待办', doing: '进行中', done: '完成' }
 
 /** A payload for a new media entry; empty optional fields are omitted. */
 function mediaInput(payload: Record<string, unknown>): MediaInput {
@@ -241,6 +238,164 @@ function dueText(due: string, today: string): string {
   return due === today ? '今天' : due.slice(5)
 }
 
+/**
+ * The task's completion as a 0..1 fraction.
+ *
+ * A task without a target amount is a plain checkbox: it has no fraction to
+ * show, so it reads 0 or 1. A target of 0 cannot be divided by either, and is
+ * treated the same way as no target at all.
+ */
+function ratioOf(entry: TaskEntry): number {
+  const { current, total } = entry.progress
+  if (total === undefined || total <= 0) return current > 0 ? 1 : 0
+  return Math.max(0, Math.min(1, current / total))
+}
+
+/** Where along the bar a pointer sits, as a 0..1 fraction. */
+function ratioFromPointer(event: ReactPointerEvent<HTMLElement>, element: HTMLElement): number {
+  const box = element.getBoundingClientRect()
+  if (box.width <= 0) return 0
+  return Math.max(0, Math.min(1, (event.clientX - box.left) / box.width))
+}
+
+/** The bar's value in whole units — what a drag or a key press writes. */
+function barValue(entry: TaskEntry, ratio: number): number {
+  const total = entry.progress.total
+  if (total === undefined || total <= 0) return ratio > 0 ? 1 : 0
+  return Math.max(0, Math.min(total, Math.round(ratio * total)))
+}
+
+/** What the bar's tooltip reads. */
+function barTitle(entry: TaskEntry, dragging: boolean): string {
+  const { current, total } = entry.progress
+  const quantized = total !== undefined && total > 0
+  const state = entry.state === 'done'
+    ? '已完成'
+    : entry.overdue ? '逾期未完成' : current > 0 ? '进行中' : '未完成'
+  const parts = [
+    quantized
+      ? `${state} ${Math.round(ratioOf(entry) * 100)}%（${fractionText(current)}/${fractionText(total)}）`
+      : state,
+  ]
+  if (entry.completedAt !== undefined) {
+    const date = entry.completedAt.slice(0, 10)
+    parts.push(`完成于 ${date.slice(5)} ${timeOf(entry.completedAt)}`)
+  }
+  parts.push(dragging ? '松开写入进度' : quantized ? '拖动或 ←/→ 调整进度' : '点击切换完成，←/→ 也可')
+  return parts.join(' · ')
+}
+
+/**
+ * One task, on two lines.
+ *
+ * The first line is what the task *is* — title, course, deadline — and the
+ * second is what can be done to it: a bar that says how far along it is, plus
+ * edit and delete. The state is deliberately not spelled out as a word: a
+ * finished task is a full bar with a ✓ on it, and a late one is red, so the
+ * thing you would read is the same thing you would act on.
+ *
+ * Dragging writes once, on release. Every move would otherwise be an API call,
+ * and the host answers each one with a whole slice; the local `drag` value is
+ * the preview, and `progress.current` stays the accepted truth until then.
+ */
+function TaskRow({ entry, today, busy, onPatch, onEdit, onRemove }: {
+  readonly entry: TaskEntry
+  readonly today: string
+  readonly busy: boolean
+  readonly onPatch: (patch: TaskPatch) => void
+  readonly onEdit: () => void
+  readonly onRemove: () => void
+}): JSX.Element {
+  const [drag, setDrag] = useState<number | null>(null)
+  const total = entry.progress.total
+  const quantized = total !== undefined && total > 0
+  const ratio = drag ?? ratioOf(entry)
+  const commit = (next: number): void => onPatch({ progress: { current: next } })
+
+  return (
+    <div className={entry.overdue && entry.state !== 'done' ? 'pt-task pt-task-late' : 'pt-task'}>
+      <div className="pt-task-head">
+        <span className="pt-task-title">{entry.title}</span>
+        {entry.category === undefined ? null : <span className="pt-muted">({entry.category})</span>}
+        {entry.due === undefined
+          ? null
+          : (
+            <span className={`pt-task-due pt-due-${dueLevelOf(entry.due, today)}`}>
+              截止于{dueText(entry.due, today)}
+            </span>
+          )}
+      </div>
+
+      <div className="pt-task-foot">
+        <button
+          type="button"
+          className={quantized ? 'pt-task-bar' : 'pt-task-bar pt-task-bar-plain'}
+          disabled={busy}
+          title={barTitle(entry, drag !== null)}
+          aria-label={`${entry.title} 进度`}
+          aria-valuemin={0}
+          aria-valuemax={quantized ? total : 1}
+          aria-valuenow={barValue(entry, ratio)}
+          onPointerDown={(event) => {
+            if (!quantized) return
+            const box = event.currentTarget
+            box.setPointerCapture(event.pointerId)
+            setDrag(ratioFromPointer(event, box))
+          }}
+          onPointerMove={(event) => {
+            if (drag === null || !quantized) return
+            setDrag(ratioFromPointer(event, event.currentTarget))
+          }}
+          onPointerUp={(event) => {
+            if (drag === null || !quantized) return
+            const next = barValue(entry, ratioFromPointer(event, event.currentTarget))
+            setDrag(null)
+            if (next !== entry.progress.current) commit(next)
+          }}
+          onPointerCancel={() => setDrag(null)}
+          onClick={() => {
+            // A drag already wrote on release, and a bar on the pointer path
+            // never toggles; this is the plain click and the keyboard.
+            if (quantized || drag !== null) return
+            commit(entry.state === 'done' ? 0 : 1)
+          }}
+          onKeyDown={(event) => {
+            const max = quantized ? total : 1
+            if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+              event.preventDefault()
+              commit(Math.min(max, entry.progress.current + 1))
+            } else if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+              event.preventDefault()
+              commit(Math.max(0, entry.progress.current - 1))
+            } else if (event.key === 'Home') {
+              event.preventDefault()
+              commit(0)
+            } else if (event.key === 'End') {
+              event.preventDefault()
+              commit(max)
+            }
+          }}
+        >
+          <span
+            className={entry.overdue && entry.state !== 'done' ? 'pt-task-fill pt-task-fill-late' : 'pt-task-fill'}
+            style={{ width: `${Math.round(ratio * 100)}%` }}
+          />
+        </button>
+        {quantized
+          ? (
+            <span className="pt-task-count" title="当前 / 目标量">
+              {fractionText(entry.progress.current)}/{fractionText(total)}
+            </span>
+          )
+          : null}
+        {entry.state === 'done' ? <span className="pt-task-ok" title="已完成">✓</span> : null}
+        <IconButton label="编辑" disabled={busy} onClick={onEdit}>✎</IconButton>
+        <IconButton label="删除" disabled={busy} onClick={onRemove}>×</IconButton>
+      </div>
+    </div>
+  )
+}
+
 /** Tasks and homework: due soonest first, with the derived state shown. */
 export function TaskTile({ tasks, today, busy, onAdd, onPatch, onRemove }: TaskTileProps): JSX.Element {
   const [mode, setMode] = useState<Mode>({ kind: 'idle' })
@@ -283,65 +438,15 @@ export function TaskTile({ tasks, today, busy, onAdd, onPatch, onRemove }: TaskT
           />
         )
         : (
-          <div className="pt-list-row" key={task.id}>
-            <span className="pt-list-text">
-              <span className={
-                task.state === 'done'
-                  ? 'pt-badge pt-badge-ok'
-                  : task.overdue ? 'pt-badge pt-badge-warn' : 'pt-badge'
-              }>
-                {task.overdue && task.state !== 'done' ? '逾期' : TASK_STATE[task.state] ?? task.state}
-              </span>
-              {' '}
-              {task.title}
-              {task.progress.total === undefined
-                ? null
-                : (
-                  <span className="pt-muted">
-                    {' '}
-                    {fractionText(task.progress.current)}/{fractionText(task.progress.total)}
-                  </span>
-                )}
-              {task.category === undefined ? null : <span className="pt-muted"> · {task.category}</span>}
-              {task.due === undefined
-                ? null
-                : (
-                  <span className={`pt-due-${dueLevelOf(task.due, today)}`}>
-                    {' '}· 截止 {dueText(task.due, today)}
-                  </span>
-                )}
-            </span>
-            {task.progress.total === undefined
-              ? null
-              : (
-                <span
-                  className="pt-task-bar"
-                  title={`进度 ${Math.round(Math.min(1, task.progress.current / task.progress.total) * 100)}%`}
-                >
-                  <span
-                    className="pt-task-bar-fill"
-                    style={{
-                      width: `${Math.max(0, Math.min(100, Math.round(task.progress.current / task.progress.total * 100)))}%`,
-                    }}
-                  />
-                </span>
-              )}
-            {task.state === 'done'
-              ? null
-              : (
-                <IconButton
-                  label="标记完成"
-                  disabled={busy}
-                  onClick={() => onPatch(task.id, {
-                    progress: {
-                      current: task.progress.total ?? Math.max(1, task.progress.current + 1),
-                    },
-                  })}
-                >✓</IconButton>
-              )}
-            <IconButton label="编辑" disabled={busy} onClick={() => setMode({ kind: 'edit', id: task.id })}>✎</IconButton>
-            <IconButton label="删除" disabled={busy} onClick={() => onRemove(task.id)}>×</IconButton>
-          </div>
+          <TaskRow
+            key={task.id}
+            entry={task}
+            today={today}
+            busy={busy}
+            onPatch={patch => onPatch(task.id, patch)}
+            onEdit={() => setMode({ kind: 'edit', id: task.id })}
+            onRemove={() => onRemove(task.id)}
+          />
         )))}
 
       {mode.kind === 'add'

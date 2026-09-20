@@ -245,16 +245,58 @@ const CSS = `
 .pt-due-week { color: rgba(214,190,86,.95); }
 .pt-due-far { opacity: .6; }
 
-/* A task's own progress, as a hairline bar before its actions. */
-.pt-task-bar {
-  flex: none; width: 34px; height: 4px; border-radius: 2px;
-  background: var(--pt-surface-2); overflow: hidden;
+/* ---- tasks: two lines each ------------------------------------------- */
+/*
+ * A task is two lines. The head says what it is — title, course, deadline —
+ * and the foot is what you can do to it: a bar that both shows and sets the
+ * completion, then edit and delete. The derived state is not spelled out in
+ * words: a full bar with a ✓ is done, a red one is late.
+ */
+.pt-task { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.pt-task + .pt-task { margin-top: 3px; }
+.pt-task-head {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 6px;
+  font-size: 12px; line-height: 1.5; min-width: 0;
 }
-.pt-task-bar-fill {
-  display: block; height: 100%; border-radius: 2px;
+.pt-task-title { font-weight: 600; }
+.pt-task-due { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pt-task-foot { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.pt-task-ok { font-size: 11px; color: rgba(90,175,120,.95); flex: none; }
+/* The current/total reading: a bar's length only approximates it. */
+.pt-task-count {
+  flex: none; font-size: 11px; opacity: .7;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
+/*
+ * The bar is the whole remaining width: it is the one thing on the line that
+ * grows, and the wider it is the finer the drag. It is a button, so it takes
+ * focus and arrow keys; the grab cursor and the raised track on hover are what
+ * say it can be dragged.
+ */
+.pt-task-bar {
+  appearance: none; flex: 1; min-width: 40px; height: 8px; padding: 0;
+  border: 1px solid var(--pt-line); border-radius: 4px;
+  background: var(--pt-surface-2); overflow: hidden;
+  cursor: grab; touch-action: none;
+  transition: border-color .12s ease, background .12s ease;
+}
+.pt-task-bar:hover:not(:disabled), .pt-task-bar:focus-visible { border-color: var(--pt-line-strong); }
+.pt-task-bar:active:not(:disabled) { cursor: grabbing; }
+.pt-task-bar:disabled { cursor: default; opacity: .6; }
+/* Without a target amount there is nothing to drag: it is a checkbox. */
+.pt-task-bar-plain { cursor: pointer; }
+.pt-task-bar-plain:active:not(:disabled) { cursor: pointer; }
+
+.pt-task-fill {
+  display: block; height: 100%; border-radius: 3px;
   background: linear-gradient(90deg, rgba(90,175,120,.8), rgba(130,205,155,.95));
   transition: width .18s ease;
 }
+.pt-task-fill-late {
+  background: linear-gradient(90deg, rgba(220,96,96,.8), rgba(238,132,118,.95));
+}
+.pt-task-late .pt-task-bar { border-color: rgba(220,96,96,.45); }
 
 /* ---- the statistics panel (main area) -------------------------------- */
 .pt-panel-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
@@ -289,9 +331,21 @@ const CSS = `
 }
 `
 
-/** Inject the stylesheet once. */
+/**
+ * Inject the stylesheet, or bring an already-injected one up to date.
+ *
+ * Presence alone is not enough to conclude "nothing to do": reloading the
+ * client half keeps the document, so a stylesheet injected by the previous
+ * build would survive and style the new markup with old rules — which reads as
+ * a layout bug in the new code. Comparing the text keeps the hot-reload path
+ * honest.
+ */
 export function ensureBoardStyles(): void {
-  if (document.querySelector('style[data-personal-track]') !== null) return
+  const existing = document.querySelector('style[data-personal-track]')
+  if (existing !== null) {
+    if (existing.textContent !== CSS) existing.textContent = CSS
+    return
+  }
   const style = document.createElement('style')
   style.setAttribute('data-personal-track', '')
   style.textContent = CSS
