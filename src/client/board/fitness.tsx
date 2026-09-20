@@ -1,16 +1,18 @@
 /**
- * The training cards: running (single-valued, with derived pace), jump rope
+ * The training tiles: running (single-valued, with derived pace), jump rope
  * (fixed-count sets), pull-ups (support time) and gym equipment.
  */
 import { useState, type JSX } from 'react'
 import type { EquipmentSession, PullupSession, RopeSession } from '../types.ts'
 import { FieldForm, type FieldSpec } from './fields.tsx'
-import { paceLabel, paceOf, timeOf } from './format.ts'
-import { SessionCard, type SessionEntry } from './session-cards.tsx'
+import { TIME_FIELD, paceLabel, paceOf, timeOf, timeValueOf } from './format.ts'
+import { SessionTile, type SessionEntry } from './session-cards.tsx'
+import { IconButton, Tile, TileHead } from './tile.tsx'
 
 /** Fields for the single running entry; the duration starts from config. */
 function runFields(defaultMinutes: number): readonly FieldSpec[] {
   return [
+    TIME_FIELD,
     { name: 'minutes', label: '时长(分)', kind: 'number', min: 1, defaultValue: String(defaultMinutes) },
     { name: 'distanceKm', label: '里程(km)', kind: 'number', step: 0.01, min: 0 },
     { name: 'avgHr', label: '平均心率', kind: 'number', min: 1, optional: true },
@@ -43,14 +45,17 @@ const EQUIPMENT_FIELDS: readonly FieldSpec[] = [
   { name: 'weight', label: '重量(kg)', kind: 'number', step: 0.5, min: 0, optional: true },
 ]
 
-/** Props for the running card. */
+/** The running entry the tile renders. */
+export interface RunEntry {
+  readonly at: string
+  readonly minutes: number
+  readonly distanceKm: number
+  readonly avgHr?: number
+}
+
+/** Props for the running tile. */
 export interface RunCardProps {
-  readonly run: {
-    readonly at: string
-    readonly minutes: number
-    readonly distanceKm: number
-    readonly avgHr?: number
-  } | null
+  readonly run: RunEntry | null
   readonly defaultMinutes: number
   readonly busy: boolean
   readonly onSet: (payload: Record<string, unknown>) => void
@@ -58,50 +63,59 @@ export interface RunCardProps {
 }
 
 /** Running: at most one entry a day, with pace derived for display. */
-export function RunCard({ run, defaultMinutes, busy, onSet, onClear }: RunCardProps): JSX.Element {
+export function RunTile({ run, defaultMinutes, busy, onSet, onClear }: RunCardProps): JSX.Element {
   const [editing, setEditing] = useState(false)
   const fields = runFields(defaultMinutes)
 
-  if (editing) {
-    return (
-      <FieldForm
-        fields={fields}
-        initial={run ?? undefined}
-        submitLabel="保存"
-        busy={busy}
-        onSubmit={(payload) => {
-          onSet(payload)
-          setEditing(false)
-        }}
-        onCancel={() => setEditing(false)}
-      />
-    )
-  }
-
-  if (run === null) {
-    return (
-      <div className="pt-row">
-        <span className="pt-row-label">跑步</span>
-        <span className="pt-muted">未记录</span>
-        <button className="pt-btn pt-btn-primary" disabled={busy} onClick={() => setEditing(true)}>记录</button>
-      </div>
-    )
-  }
-
   return (
-    <div className="pt-row pt-entry">
-      <span className="pt-row-label">
-        {run.distanceKm} km · {run.minutes} 分 · {paceLabel(paceOf(run.minutes, run.distanceKm))}
-        {run.avgHr === undefined ? '' : ` · ♥${run.avgHr}`}
-        <span className="pt-muted"> {timeOf(run.at)}</span>
-      </span>
-      <button className="pt-btn pt-btn-icon" title="编辑" disabled={busy} onClick={() => setEditing(true)}>✎</button>
-      <button className="pt-btn pt-btn-icon" title="删除" disabled={busy} onClick={onClear}>×</button>
-    </div>
+    <Tile span={2} tone={run === null ? 'idle' : 'done'}>
+      <TileHead
+        title="跑步"
+        meta={run === null ? '未记录' : `${run.distanceKm} km · ${run.minutes} 分`}
+      >
+        {run === null ? null : (
+          <>
+            <IconButton label="编辑" disabled={busy} onClick={() => setEditing(true)}>✎</IconButton>
+            <IconButton label="删除" disabled={busy} onClick={onClear}>×</IconButton>
+          </>
+        )}
+      </TileHead>
+
+      {editing ? (
+        <FieldForm
+          fields={fields}
+          initial={{
+            time: timeValueOf(run?.at),
+            minutes: run?.minutes,
+            distanceKm: run?.distanceKm,
+            avgHr: run?.avgHr,
+          }}
+          submitLabel="保存"
+          busy={busy}
+          onSubmit={(payload) => {
+            onSet(payload)
+            setEditing(false)
+          }}
+          onCancel={() => setEditing(false)}
+        />
+      ) : run === null ? (
+        <div className="pt-tile-foot">
+          <span className="pt-muted">默认 30 分钟，记里程与平均心率</span>
+          <span className="pt-grow" />
+          <button type="button" className="pt-primary" disabled={busy} onClick={() => setEditing(true)}>记录</button>
+        </div>
+      ) : (
+        <div className="pt-metrics">
+          <span>{paceLabel(paceOf(run.minutes, run.distanceKm))}</span>
+          {run.avgHr === undefined ? null : <span>♥ {run.avgHr}</span>}
+          <span className="pt-muted">{timeOf(run.at)}</span>
+        </div>
+      )}
+    </Tile>
   )
 }
 
-/** Handlers a session list needs, shared by the three repetitive habits. */
+/** Handlers a session tile needs, shared by the three repetitive habits. */
 export interface SessionHandlers {
   readonly busy: boolean
   readonly onAdd: (payload: Record<string, unknown>) => void
@@ -112,8 +126,9 @@ export interface SessionHandlers {
 /** Jump rope: 90 or 180 count sets, any number a day. */
 export function RopeCard({ sessions, ...handlers }: SessionHandlers & { readonly sessions: readonly RopeSession[] }): JSX.Element {
   return (
-    <SessionCard
+    <SessionTile
       label="跳绳"
+      title="组数"
       entries={sessions as readonly SessionEntry[]}
       fields={ROPE_FIELDS}
       summarize={entry => `${Number(entry.preset)} 定数 · ${Number(entry.seconds)}s${entry.avgHr === undefined ? '' : ` · ♥${Number(entry.avgHr)}`} · ${timeOf(String(entry.at ?? ''))}`}
@@ -127,8 +142,9 @@ export function RopeCard({ sessions, ...handlers }: SessionHandlers & { readonly
 /** Pull-ups: support time per set. */
 export function PullupCard({ sessions, ...handlers }: SessionHandlers & { readonly sessions: readonly PullupSession[] }): JSX.Element {
   return (
-    <SessionCard
+    <SessionTile
       label="引体向上"
+      title="组数"
       entries={sessions as readonly SessionEntry[]}
       fields={PULLUP_FIELDS}
       summarize={entry => `支撑 ${Number(entry.seconds)}s · ${timeOf(String(entry.at ?? ''))}`}
@@ -142,8 +158,9 @@ export function PullupCard({ sessions, ...handlers }: SessionHandlers & { readon
 /** Gym equipment: name, total reps, optional weight. */
 export function EquipmentCard({ sessions, ...handlers }: SessionHandlers & { readonly sessions: readonly EquipmentSession[] }): JSX.Element {
   return (
-    <SessionCard
+    <SessionTile
       label="健身器材"
+      title="组数"
       entries={sessions as readonly SessionEntry[]}
       fields={EQUIPMENT_FIELDS}
       summarize={entry => `${String(entry.name)} · ${Number(entry.reps)} 次${entry.weight === undefined ? '' : ` · ${Number(entry.weight)}kg`} · ${timeOf(String(entry.at ?? ''))}`}

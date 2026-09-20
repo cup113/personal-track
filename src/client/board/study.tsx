@@ -1,14 +1,15 @@
 /**
- * The study cards: vocabulary (a quantity target plus its sessions) and
+ * The study tiles: vocabulary (a quantity target plus its sessions) and
  * duolingo (a presence target: one lesson satisfies the day).
  */
 import { useState, type JSX } from 'react'
 import type { Lesson, VocabProgress, VocabSession } from '../types.ts'
 import { FieldForm, type FieldSpec } from './fields.tsx'
 import { timeOf } from './format.ts'
-import { SessionCard, type SessionEntry } from './session-cards.tsx'
+import { SessionList, SessionTile, type SessionEntry } from './session-cards.tsx'
+import { IconButton, Tile, TileHead } from './tile.tsx'
 
-/** Metrics one vocabulary session carries. */
+/** Metrics one vocabulary session carries (the list adds the time field). */
 const VOCAB_FIELDS: readonly FieldSpec[] = [
   { name: 'new', label: '新词', kind: 'number', min: 0 },
   { name: 'review', label: '复习', kind: 'number', min: 0 },
@@ -20,7 +21,7 @@ const LESSON_FIELDS: readonly FieldSpec[] = [
   { name: 'minutes', label: '用时(分)', kind: 'number', min: 0 },
 ]
 
-/** Props for the vocabulary card. */
+/** Props for the vocabulary tile. */
 export interface VocabCardProps {
   readonly target: { readonly new: number; readonly review: number }
   readonly progress: VocabProgress
@@ -42,30 +43,24 @@ export function VocabCard({
   const [editing, setEditing] = useState(false)
   const surplus = progress.surplusNew + progress.surplusReview
   const percent = Math.round(progress.ratio * 100)
+  const done = progress.doneNew + progress.doneReview
+  const goal = progress.targetNew + progress.targetReview
 
   return (
-    <>
-      <div className="pt-row">
-        <span className="pt-row-label">背单词</span>
-        <span className="pt-muted">
-          新 {progress.doneNew}/{progress.targetNew} · 复 {progress.doneReview}/{progress.targetReview} · {progress.minutes}分
-        </span>
-        <button
-          className="pt-btn pt-btn-icon"
-          title="改这一天的目标"
-          disabled={busy}
-          onClick={() => setEditing(value => !value)}
-        >✎</button>
-      </div>
+    <Tile span={2} tone={progress.met ? 'done' : 'idle'}>
+      <TileHead title="背单词" meta={`${done}/${goal}`}>
+        <IconButton label="改这一天的目标" disabled={busy} onClick={() => setEditing(value => !value)}>✎</IconButton>
+      </TileHead>
 
+      <div className="pt-metrics">
+        <span>新 {progress.doneNew}<small>/{progress.targetNew}</small></span>
+        <span>复 {progress.doneReview}<small>/{progress.targetReview}</small></span>
+        <span>{progress.minutes} 分</span>
+        {surplus === 0 ? null : <span className="pt-muted">超额 {surplus}</span>}
+      </div>
       <div className="pt-bar">
         <div className="pt-bar-fill" style={{ width: `${percent}%` }} />
       </div>
-      {surplus === 0 ? null : (
-        <div className="pt-row pt-entry">
-          <span className="pt-muted">超额 · 新 {progress.surplusNew} · 复 {progress.surplusReview}</span>
-        </div>
-      )}
 
       {editing ? (
         <FieldForm
@@ -83,8 +78,8 @@ export function VocabCard({
         />
       ) : null}
 
-      <SessionCard
-        label="学习记录"
+      <SessionList
+        title="学习记录"
         entries={sessions as readonly SessionEntry[]}
         fields={VOCAB_FIELDS}
         summarize={entry => `${timeOf(String(entry.at ?? ''))} · 新 ${Number(entry.new)} 复 ${Number(entry.review)} · ${Number(entry.minutes)}分`}
@@ -94,11 +89,11 @@ export function VocabCard({
         onPatch={onPatch}
         onRemove={onRemove}
       />
-    </>
+    </Tile>
   )
 }
 
-/** Props for the duolingo card. */
+/** Props for the duolingo tile. */
 export interface DuolingoCardProps {
   readonly lessons: readonly Lesson[]
   readonly busy: boolean
@@ -111,8 +106,9 @@ export interface DuolingoCardProps {
 export function DuolingoCard({ lessons, busy, onAdd, onPatch, onRemove }: DuolingoCardProps): JSX.Element {
   const total = lessons.reduce((sum, lesson) => sum + lesson.minutes, 0)
   return (
-    <SessionCard
+    <SessionTile
       label={`多邻国${lessons.length === 0 ? '' : ` · ${lessons.length} 节 ${total}分`}`}
+      title="课程"
       entries={lessons as readonly SessionEntry[]}
       fields={LESSON_FIELDS}
       summarize={entry => `${timeOf(String(entry.at ?? ''))} · ${Number(entry.minutes)} 分钟`}

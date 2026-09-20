@@ -1,0 +1,169 @@
+/**
+ * The board's visual primitives: tiles, tile headers, icon buttons, the
+ * completion ring, category pills and the editable time chip.
+ *
+ * A tile is the unit of the board — one habit, one card — and tiles declare
+ * whether they take one grid column or the full row. Everything inside a tile
+ * is content; everything interactive is a button, so a tile never pretends to
+ * be clickable as a whole.
+ */
+import type { JSX, ReactNode } from 'react'
+import { FieldForm, type FieldSpec } from './fields.tsx'
+import { TIME_FIELD, timeOf, timeValueOf } from './format.ts'
+
+/** How much of the grid row a tile takes. */
+export type Span = 1 | 2
+
+/** The tile's state-tinted look. */
+export type Tone = 'idle' | 'done'
+
+/** One card on the board. */
+export function Tile({ span = 1, tone = 'idle', children }: {
+  readonly span?: Span
+  readonly tone?: Tone
+  readonly children: ReactNode
+}): JSX.Element {
+  return <section className={`pt-tile pt-span-${span} pt-tone-${tone}`}>{children}</section>
+}
+
+/** The tile's title row: name, a right-aligned fact, and optional actions. */
+export function TileHead({ title, meta, children }: {
+  readonly title: string
+  readonly meta?: string
+  readonly children?: ReactNode
+}): JSX.Element {
+  return (
+    <header className="pt-tile-head">
+      <span className="pt-tile-title">{title}</span>
+      {meta === undefined ? null : <span className="pt-tile-meta">{meta}</span>}
+      {children === undefined ? null : <span className="pt-tile-actions">{children}</span>}
+    </header>
+  )
+}
+
+/** A small square button for a secondary action. */
+export function IconButton({ label, disabled, onClick, children }: {
+  readonly label: string
+  readonly disabled: boolean
+  readonly onClick: () => void
+  readonly children: ReactNode
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      className="pt-icon"
+      title={label}
+      aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
+    >{children}</button>
+  )
+}
+
+/** A full-row heading that groups the tiles below it. */
+export function GroupHeader({ label, hint }: { readonly label: string; readonly hint?: string }): JSX.Element {
+  return (
+    <div className="pt-group">
+      <span>{label}</span>
+      {hint === undefined ? null : <small>{hint}</small>}
+    </div>
+  )
+}
+
+/** The day's completion as a ring plus the count. */
+export function ProgressRing({ ratio, label, sub }: {
+  readonly ratio: number
+  readonly label: string
+  readonly sub?: string
+}): JSX.Element {
+  const radius = 15.5
+  const circumference = 2 * Math.PI * radius
+  const clamped = Number.isFinite(ratio) ? Math.max(0, Math.min(1, ratio)) : 0
+  return (
+    <div className="pt-ring" role="img" aria-label={`完成 ${label}`}>
+      <svg viewBox="0 0 40 40" width="46" height="46">
+        <circle className="pt-ring-track" cx="20" cy="20" r={radius} />
+        <circle
+          className="pt-ring-fill"
+          cx="20"
+          cy="20"
+          r={radius}
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference * (1 - clamped)}
+          transform="rotate(-90 20 20)"
+        />
+      </svg>
+      <span className="pt-ring-text">
+        {label}
+        {sub === undefined ? null : <small>{sub}</small>}
+      </span>
+    </div>
+  )
+}
+
+/** A row of small filter pills. */
+export function Pills<T extends string>({ value, options, onChange }: {
+  readonly value: T
+  readonly options: readonly { readonly value: T; readonly label: string }[]
+  readonly onChange: (next: T) => void
+}): JSX.Element {
+  return (
+    <div className="pt-pills">
+      {options.map(option => (
+        <button
+          type="button"
+          key={option.value}
+          className={option.value === value ? 'pt-pill pt-pill-on' : 'pt-pill'}
+          onClick={() => onChange(option.value)}
+        >{option.label}</button>
+      ))}
+    </div>
+  )
+}
+
+/** A recorded time: the label opens its editor, the × removes the entry. */
+export function TimeChip({ instant, busy, onEdit, onRemove }: {
+  readonly instant: string
+  readonly busy: boolean
+  readonly onEdit: () => void
+  readonly onRemove: () => void
+}): JSX.Element {
+  return (
+    <span className="pt-chip-time">
+      <button
+        type="button"
+        className="pt-chip-time-label"
+        title="修改时间"
+        disabled={busy}
+        onClick={onEdit}
+      >{timeOf(instant)}</button>
+      <button
+        type="button"
+        className="pt-chip-time-remove"
+        title="撤销这一条"
+        disabled={busy}
+        onClick={onRemove}
+      >×</button>
+    </span>
+  )
+}
+
+/** A single-field editor for a recorded time. */
+export function TimeEditor({ instant, busy, onSubmit, onCancel }: {
+  readonly instant: string | null | undefined
+  readonly busy: boolean
+  readonly onSubmit: (time: string) => void
+  readonly onCancel: () => void
+}): JSX.Element {
+  const fields: readonly FieldSpec[] = [TIME_FIELD]
+  return (
+    <FieldForm
+      fields={fields}
+      initial={{ time: timeValueOf(instant) }}
+      submitLabel="保存"
+      busy={busy}
+      onSubmit={payload => onSubmit(String(payload.time))}
+      onCancel={onCancel}
+    />
+  )
+}

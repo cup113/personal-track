@@ -28,9 +28,10 @@ export type CheckHabit = 'wash' | 'shower'
 /** One meal slot. */
 export type MealSlot = 'breakfast' | 'lunch' | 'dinner'
 
-/** Meal edit options: `at` preserves the recorded time when only the price changes. */
+/** Meal edit options: `time` retimes the slot, `price` sets or clears it. */
 export interface MealOptions {
-  readonly at?: string
+  /** `HH:mm`; the host resolves it inside the habit day. */
+  readonly time?: string
   readonly price?: number
 }
 
@@ -57,10 +58,13 @@ export interface HabitClient {
   check(date: string, habit: CheckHabit): Promise<StateView>
   /** Remove one recorded check; `index` defaults to the most recent. */
   uncheck(date: string, habit: CheckHabit, index?: number): Promise<StateView>
+  /** Retime one recorded check; `index` defaults to the most recent. */
+  editCheck(date: string, habit: CheckHabit, index: number | undefined, time: string): Promise<StateView>
   setMeal(date: string, slot: MealSlot, options?: MealOptions): Promise<StateView>
   clearMeal(date: string, slot: MealSlot): Promise<StateView>
   setStock(pending: number): Promise<StateView>
-  wash(date: string, pieces: number): Promise<StateView>
+  /** A wash happened: record it, optionally at a known hour. */
+  wash(date: string, pieces: number, time?: string): Promise<StateView>
   /** Append one session; the host stamps `at` and assigns the id. */
   addSession(date: string, kind: SessionKind, entry: Record<string, unknown>): Promise<StateView>
   patchSession(date: string, kind: SessionKind, id: string, patch: Record<string, unknown>): Promise<StateView>
@@ -137,15 +141,25 @@ export function createHabitClient(): HabitClient {
       `/check${query({ date, habit, index })}`,
       { method: 'DELETE' },
     ),
+    editCheck: (date, habit, index, time) => request<StateView>('/check', body('PATCH', {
+      date,
+      habit,
+      ...(index === undefined ? {} : { index }),
+      time,
+    })),
     setMeal: (date, slot, options) => request<StateView>('/meal', body('PUT', {
       date,
       slot,
-      ...(options?.at === undefined ? {} : { at: options.at }),
+      ...(options?.time === undefined ? {} : { time: options.time }),
       ...(options?.price === undefined ? {} : { price: options.price }),
     })),
     clearMeal: (date, slot) => request<StateView>(`/meal${query({ date, slot })}`, { method: 'DELETE' }),
     setStock: pending => request<StateView>('/laundry/stock', body('PATCH', { pending })),
-    wash: (date, pieces) => request<StateView>('/laundry/wash', body('POST', { date, pieces })),
+    wash: (date, pieces, time) => request<StateView>('/laundry/wash', body('POST', {
+      date,
+      pieces,
+      ...(time === undefined ? {} : { time }),
+    })),
     addSession: (date, kind, entry) => request<StateView>('/session', body('POST', { date, kind, entry })),
     patchSession: (date, kind, id, patch) => request<StateView>('/session', body('PATCH', { date, kind, id, patch })),
     removeSession: (date, kind, id) => request<StateView>(

@@ -12,7 +12,8 @@ import { useState, type JSX } from 'react'
 export interface FieldSpec {
   readonly name: string
   readonly label: string
-  readonly kind: 'number' | 'text' | 'select'
+  /** `time` renders a clock input whose value travels as `time` (`HH:mm`). */
+  readonly kind: 'number' | 'text' | 'select' | 'time'
   readonly step?: number
   readonly min?: number
   /** Select options; `numericOptions` converts the chosen value to a number. */
@@ -111,7 +112,7 @@ export function FieldForm({
             : (
               <input
                 className="pt-input"
-                type={field.kind === 'number' ? 'number' : 'text'}
+                type={field.kind === 'number' ? 'number' : field.kind === 'time' ? 'time' : 'text'}
                 step={field.step}
                 min={field.min}
                 placeholder={field.placeholder}

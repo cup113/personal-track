@@ -15,6 +15,23 @@ export function timeOf(instant: string | null | undefined): string {
   return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
+/**
+ * The `HH:mm` value an `<input type="time">` needs for a stored instant.
+ *
+ * The board only ever sends a clock time back; the host resolves it inside the
+ * habit day, so nothing here has to know about dates or the night tail.
+ */
+export function timeValueOf(instant: string | null | undefined): string {
+  if (instant === null || instant === undefined || instant === '') return ''
+  const date = new Date(instant)
+  if (Number.isNaN(date.getTime())) return ''
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+/** A standard time input, described once for every editable entry. */
+export const TIME_FIELD = { name: 'time', label: '时间', kind: 'time' } as const
+
 /** `9月16日` for a habit-day key. */
 export function monthDayOf(key: string): string {
   const [, month, day] = key.split('-')

@@ -24,11 +24,13 @@ export function DateNav({ date, today, night, onChange }: DateNavProps): JSX.Ele
   const isNight = night && date === today
 
   return (
-    <div className="pt-section">
+    <div className="pt-nav-wrap">
       <div className="pt-nav">
         <button
-          className="pt-btn pt-btn-icon"
+          type="button"
+          className="pt-icon"
           title="前一天"
+          aria-label="前一天"
           onClick={() => onChange(shiftKey(date, -1))}
         >‹</button>
         <div className="pt-nav-label">
@@ -36,21 +38,24 @@ export function DateNav({ date, today, night, onChange }: DateNavProps): JSX.Ele
           {isNight ? <small className="pt-muted"> · 凌晨时段</small> : null}
         </div>
         <button
-          className="pt-btn pt-btn-icon"
+          type="button"
+          className="pt-icon"
           title="后一天"
+          aria-label="后一天"
           disabled={atToday}
           onClick={() => onChange(shiftKey(date, 1))}
         >›</button>
         <button
-          className="pt-btn"
+          type="button"
+          className="pt-ghost"
           disabled={atToday}
           title="回到当前习惯日"
           onClick={() => onChange(today)}
         >今天</button>
       </div>
-      <div className="pt-row">
+      <div className="pt-nav-second">
         <input
-          className="pt-input pt-grow"
+          className="pt-input pt-date"
           type="date"
           value={jump === '' ? date : jump}
           max={today}

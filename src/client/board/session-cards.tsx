@@ -1,20 +1,24 @@
 /**
- * The generic session list: a header row with an add action, then one row per
- * stored entry that can be edited in place or deleted.
+ * The generic session list: a sub-header with an add action, then one row per
+ * stored entry that can be edited in place (time and metrics) or deleted.
  *
- * Every session-bearing habit (vocabulary, duolingo, jump rope, pull-ups,
- * equipment) is this component plus a field description and a one-line summary,
- * so the editing and deletion behaviour is identical everywhere.
+ * Every session-bearing habit — vocabulary, duolingo, jump rope, pull-ups,
+ * equipment — is this list plus a field description and a one-line summary, so
+ * the editing behaviour is identical everywhere. The clock-time field is added
+ * here, which is why every session can be retimed without extra code.
  */
 import { useState, type JSX } from 'react'
 import { FieldForm, type FieldSpec } from './fields.tsx'
+import { TIME_FIELD, timeValueOf } from './format.ts'
+import { IconButton, Tile, TileHead } from './tile.tsx'
 
 /** A stored session entry: an id plus whatever metrics its kind carries. */
 export type SessionEntry = { readonly id: string } & Record<string, unknown>
 
-/** Props for a session list. */
-export interface SessionCardProps {
-  readonly label: string
+/** Props for the list (and for the tile that wraps it). */
+export interface SessionListProps {
+  /** Heading shown in the list's own sub-header. */
+  readonly title: string
   readonly entries: readonly SessionEntry[]
   readonly fields: readonly FieldSpec[]
   /** One line describing an entry, e.g. `07:12 · 30 分钟`. */
@@ -27,30 +31,32 @@ export interface SessionCardProps {
   readonly onRemove: (id: string) => void
 }
 
-/** Render the list. */
-export function SessionCard({
-  label, entries, fields, summarize, busy, addLabel, emptyLabel, onAdd, onPatch, onRemove,
-}: SessionCardProps): JSX.Element {
-  const [mode, setMode] = useState<{ readonly kind: 'idle' } | { readonly kind: 'add' } | { readonly kind: 'edit'; readonly id: string }>({ kind: 'idle' })
+type Mode =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'add' }
+  | { readonly kind: 'edit'; readonly id: string }
+
+/** The list without a tile, so it can live inside another tile. */
+export function SessionList({
+  title, entries, fields, summarize, busy, addLabel, emptyLabel, onAdd, onPatch, onRemove,
+}: SessionListProps): JSX.Element {
+  const [mode, setMode] = useState<Mode>({ kind: 'idle' })
+  const allFields: readonly FieldSpec[] = [TIME_FIELD, ...fields]
 
   return (
     <>
-      <div className="pt-row">
-        <span className="pt-row-label">{label}</span>
+      <div className="pt-sub-head">
+        <span className="pt-sub-title">{title}</span>
         {entries.length === 0 ? <span className="pt-muted">{emptyLabel ?? '无记录'}</span> : null}
-        <button
-          className="pt-btn pt-btn-primary"
-          disabled={busy}
-          onClick={() => setMode({ kind: 'add' })}
-        >{addLabel ?? '添加'}</button>
+        <IconButton label={addLabel ?? '添加'} disabled={busy} onClick={() => setMode({ kind: 'add' })}>＋</IconButton>
       </div>
 
       {entries.map(entry => (mode.kind === 'edit' && mode.id === entry.id
         ? (
           <FieldForm
             key={entry.id}
-            fields={fields}
-            initial={entry}
+            fields={allFields}
+            initial={{ time: timeValueOf(String(entry.at ?? '')), ...entry }}
             submitLabel="保存"
             busy={busy}
             onSubmit={(payload) => {
@@ -61,27 +67,17 @@ export function SessionCard({
           />
         )
         : (
-          <div className="pt-row pt-entry" key={entry.id}>
-            <span className="pt-row-label">{summarize(entry)}</span>
-            <button
-              className="pt-btn pt-btn-icon"
-              title="编辑"
-              disabled={busy}
-              onClick={() => setMode({ kind: 'edit', id: entry.id })}
-            >✎</button>
-            <button
-              className="pt-btn pt-btn-icon"
-              title="删除"
-              disabled={busy}
-              onClick={() => onRemove(entry.id)}
-            >×</button>
+          <div className="pt-list-row" key={entry.id}>
+            <span className="pt-list-text">{summarize(entry)}</span>
+            <IconButton label="编辑" disabled={busy} onClick={() => setMode({ kind: 'edit', id: entry.id })}>✎</IconButton>
+            <IconButton label="删除" disabled={busy} onClick={() => onRemove(entry.id)}>×</IconButton>
           </div>
         )))}
 
       {mode.kind === 'add'
         ? (
           <FieldForm
-            fields={fields}
+            fields={allFields}
             submitLabel="添加"
             busy={busy}
             onSubmit={(payload) => {
@@ -93,5 +89,15 @@ export function SessionCard({
         )
         : null}
     </>
+  )
+}
+
+/** The list as its own full-width tile. */
+export function SessionTile({ label, title, ...list }: SessionListProps & { readonly label: string }): JSX.Element {
+  return (
+    <Tile span={2}>
+      <TileHead title={label} meta={`${list.entries.length} 条`} />
+      <SessionList title={title} {...list} />
+    </Tile>
   )
 }
