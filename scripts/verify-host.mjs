@@ -122,11 +122,46 @@ assert.equal(patched.body.day.vocab.minutes, 45, 'editing a session recomputes p
 const lesson = await api.call('POST', '/session', { date: DATE, kind: 'duolingo', entry: { minutes: 12 } })
 assert.equal(lesson.body.day.cells.find(cell => cell.id === 'duolingo').done, true)
 assert.equal(lesson.body.day.progress.done, 5, 'wash + shower + lunch + vocab + duolingo')
+const lessonId = lesson.body.day.day.duolingo[0].id
 
 const removed = await api.call('DELETE', `/session?date=${DATE}&kind=vocab&id=${sessionId}`)
 assert.equal(removed.body.day.vocab.met, false, 'removing a session takes the cell back')
 assert.equal(removed.body.day.progress.done, 4)
 console.log('sessions ✓  (append / patch / delete, cells follow the sessions)')
+
+// --- editing recorded times --------------------------------------------------
+// A clock time must be resolved inside the *habit* day, so the host decides the
+// calendar date: 01:30 on habit day 2026-09-16 is 2026-09-17T01:30 locally.
+const clockOf = iso => new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+const localDateOf = iso => new Date(iso).toLocaleDateString('en-CA')
+
+const retimedShower = await api.call('PATCH', '/check', { date: DATE, habit: 'shower', time: '07:05' })
+assert.equal(retimedShower.status, 200)
+assert.equal(clockOf(retimedShower.body.day.day.shower.at), '07:05', 'a shower time can be corrected')
+
+const nightWash = await api.call('PATCH', '/check', { date: DATE, habit: 'wash', index: 0, time: '01:30' })
+assert.equal(clockOf(nightWash.body.day.day.washes.times[0]), '01:30')
+assert.equal(localDateOf(nightWash.body.day.day.washes.times[0]), '2026-09-17',
+  'a night-tail time lands on the next calendar date …')
+assert.equal(nightWash.body.day.cells.find(cell => cell.id === 'wash1').done, true,
+  '… while still counting inside the habit day')
+
+const retimedMeal = await api.call('PUT', '/meal', { date: DATE, slot: 'lunch', time: '12:20', price: 12.5 })
+assert.equal(clockOf(retimedMeal.body.day.day.meals.lunch.at), '12:20', 'a meal time can be corrected')
+
+const retimedLesson = await api.call('PATCH', '/session', {
+  date: DATE, kind: 'duolingo', id: lessonId, patch: { time: '21:15' },
+})
+assert.equal(clockOf(retimedLesson.body.day.day.duolingo[0].at), '21:15', 'a session time can be corrected')
+
+const addedAtTime = await api.call('POST', '/check', { date: DATE, habit: 'wash', time: '22:40' })
+assert.equal(clockOf(addedAtTime.body.day.day.washes.times[1]), '22:40', 'a check can be backfilled at a known hour')
+
+const badTime = await api.call('PATCH', '/check', { date: DATE, habit: 'wash', index: 0, time: '25:00' })
+assert.equal(badTime.status, 400, 'an impossible clock time is refused')
+const noTime = await api.call('PATCH', '/check', { date: DATE, habit: 'wash', index: 0 })
+assert.equal(noTime.status, 400, 'a retime without a time is refused')
+console.log('time editing ✓  (checks, meals and sessions retimed; night tail stays in the day)')
 
 // --- running (single-valued, default duration) -------------------------------
 const run = await api.call('PUT', '/run', { date: DATE, distanceKm: 5, avgHr: 150 })
@@ -223,7 +258,8 @@ console.log(`on disk ✓  (habit/days/${DATE}.json is one readable versioned rec
 await api.stop()
 const restarted = await mount()
 const reloaded = await restarted.call('GET', `/state?date=${DATE}`)
-assert.equal(reloaded.body.day.day.washes.times.length, 1, 'checks survive a restart')
+assert.equal(reloaded.body.day.day.washes.times.length, 2, 'checks survive a restart')
+assert.equal(clockOf(reloaded.body.day.day.washes.times[0]), '01:30', 'including an edited night-tail time')
 assert.deepEqual(reloaded.body.day.target, { new: 10, review: 5 })
 assert.equal(reloaded.body.stock.pending, 2, 'the laundry stock survives a restart')
 assert.equal(reloaded.body.tasks.length, 1)

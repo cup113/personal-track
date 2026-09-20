@@ -10,7 +10,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { z } from 'zod'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { Config, DayBoundary } from './config.ts'
-import { habitDayKey, isNightTail, type DayKey } from './daykey.ts'
+import { habitDayKey, instantForHabitDay, isNightTail, type DayKey } from './daykey.ts'
 import { mediaRecord, taskRecord } from './domain.ts'
 import type { HabitStore, SessionKind } from './store.ts'
 
@@ -110,14 +110,42 @@ export function createApiHandler(deps: ApiDeps): WebRoute['handler'] {
   const { store } = deps
   const iso = (): string => deps.now().toISOString()
   const today = (): DayKey => habitDayKey(deps.now(), deps.boundary)
-  const stamp = (entry: Record<string, unknown>): Record<string, unknown> =>
-    ({ at: iso(), ...entry })
 
   /** Date from body/query, else the current habit day. */
   function dateOf(source: { date?: unknown }, fallback: DayKey): DayKey {
     const value = source.date
     if (value === undefined || value === null || value === '') return fallback
     return parse(DATE, value, 'date')
+  }
+
+  /**
+   * Turn a clock time into an instant inside the habit day.
+   *
+   * The board sends `HH:mm`; only the host may decide which calendar day that
+   * lands on, because a time before the boundary belongs to the night tail of
+   * the previous habit day.
+   */
+  function resolveAt(source: Record<string, unknown>, date: DayKey): Record<string, unknown> {
+    const clock = source.time
+    if (typeof clock !== 'string') return source
+    const { time: _dropped, ...rest } = source
+    try {
+      return { ...rest, at: instantForHabitDay(date, clock, deps.boundary) }
+    } catch (cause) {
+      throw new ApiError(400, 'habit/bad-request', cause instanceof Error ? cause.message : 'invalid time')
+    }
+  }
+
+  /** Resolve a raw entry's `time`/`at` to an instant, or undefined for "now". */
+  function entryInstant(rawEntry: Record<string, unknown>, date: DayKey): string | undefined {
+    if (typeof rawEntry.time === 'string') {
+      try {
+        return instantForHabitDay(date, rawEntry.time, deps.boundary)
+      } catch (cause) {
+        throw new ApiError(400, 'habit/bad-request', cause instanceof Error ? cause.message : 'invalid time')
+      }
+    }
+    return typeof rawEntry.at === 'string' ? rawEntry.at : undefined
   }
 
   function stateFor(date: DayKey): Record<string, unknown> {
@@ -153,20 +181,57 @@ export function createApiHandler(deps: ApiDeps): WebRoute['handler'] {
       }
 
       case 'POST /check': {
-        const body = parse(z.object({
+        const raw = parse(z.object({
           date: DATE.optional(),
           habit: z.enum(['wash', 'shower']),
+          /** Optional clock time, for backfilling at a known hour. */
+          time: z.string().optional(),
+          at: ISO.optional(),
         }), await readJson(req), 'check')
-        const date = dateOf(body, today())
-        if (body.habit === 'wash') {
+        const date = dateOf(raw, today())
+        const body = resolveAt(raw, date)
+        const at = typeof body.at === 'string' ? body.at : iso()
+        if (raw.habit === 'wash') {
           const current = store.readDay(date)?.washes.times.length ?? 0
           if (current >= 2) throw new ApiError(409, 'habit/check-limit', '洗漱每日至多两次')
           await store.mutateDay(date, day => ({
             ...day,
-            washes: { times: [...day.washes.times, iso()] },
+            washes: { times: [...day.washes.times, at] },
           }))
         } else {
-          await store.mutateDay(date, day => ({ ...day, shower: { at: iso() } }))
+          await store.mutateDay(date, day => ({ ...day, shower: { at } }))
+        }
+        sendJson(res, 200, stateFor(date))
+        return
+      }
+
+      case 'PATCH /check': {
+        const raw = parse(z.object({
+          date: DATE.optional(),
+          habit: z.enum(['wash', 'shower']),
+          /** Which recorded check to retime; defaults to the most recent. */
+          index: z.number().int().nonnegative().optional(),
+          time: z.string().optional(),
+          at: ISO.optional(),
+        }), await readJson(req), 'check edit')
+        const date = dateOf(raw, today())
+        const body = resolveAt(raw, date)
+        const at = body.at
+        if (typeof at !== 'string') throw new ApiError(400, 'habit/bad-request', '需要 time 或 at')
+        const existing = store.readDay(date)
+        if (raw.habit === 'wash') {
+          const times = existing?.washes.times ?? []
+          const index = raw.index ?? times.length - 1
+          if (index < 0 || index >= times.length) {
+            throw new ApiError(404, 'habit/not-found', '没有这条打卡')
+          }
+          await store.mutateDay(date, day => ({
+            ...day,
+            washes: { times: day.washes.times.map((entry, position) => (position === index ? at : entry)) },
+          }))
+        } else {
+          if (existing?.shower.at == null) throw new ApiError(404, 'habit/not-found', '洗澡尚未打卡')
+          await store.mutateDay(date, day => ({ ...day, shower: { at } }))
         }
         sendJson(res, 200, stateFor(date))
         return
@@ -192,15 +257,21 @@ export function createApiHandler(deps: ApiDeps): WebRoute['handler'] {
       }
 
       case 'PUT /meal': {
-        const body = parse(z.object({
+        const raw = parse(z.object({
           date: DATE.optional(),
           slot: SLOT,
+          /** Optional clock time; absent means "now". */
+          time: z.string().optional(),
           at: ISO.optional(),
           price: z.number().nonnegative().optional(),
         }), await readJson(req), 'meal')
-        const date = dateOf(body, today())
-        const meal = { at: body.at ?? iso(), ...(body.price === undefined ? {} : { price: body.price }) }
-        await store.mutateDay(date, day => ({ ...day, meals: { ...day.meals, [body.slot]: meal } }))
+        const date = dateOf(raw, today())
+        const body = resolveAt(raw, date)
+        const meal = {
+          at: typeof body.at === 'string' ? body.at : iso(),
+          ...(body.price === undefined ? {} : { price: body.price }),
+        }
+        await store.mutateDay(date, day => ({ ...day, meals: { ...day.meals, [raw.slot]: meal } }))
         sendJson(res, 200, stateFor(date))
         return
       }
@@ -225,8 +296,9 @@ export function createApiHandler(deps: ApiDeps): WebRoute['handler'] {
         }), await readJson(req), 'session')
         const kind = asSessionKind(body.kind)
         const date = dateOf(body, today())
-        const entry = parse(sessionSchemas[kind], body.entry, `session ${kind}`)
-        await store.addSession(date, kind, stamp(entry as Record<string, unknown>))
+        const rawEntry = (body.entry ?? {}) as Record<string, unknown>
+        const entry = parse(sessionSchemas[kind], body.entry, `session ${kind}`) as Record<string, unknown>
+        await store.addSession(date, kind, { ...entry, at: entryInstant(rawEntry, date) ?? iso() })
         sendJson(res, 200, stateFor(date))
         return
       }
@@ -240,8 +312,11 @@ export function createApiHandler(deps: ApiDeps): WebRoute['handler'] {
         }), await readJson(req), 'session')
         const kind = asSessionKind(body.kind)
         const date = dateOf(body, today())
-        const patch = parse(sessionSchemas[kind].partial(), body.patch, `session ${kind}`)
-        await store.patchSession(date, kind, body.id, patch as Record<string, unknown>)
+        const rawPatch = (body.patch ?? {}) as Record<string, unknown>
+        const patch = parse(sessionSchemas[kind].partial(), body.patch, `session ${kind}`) as Record<string, unknown>
+        const instant = entryInstant(rawPatch, date)
+        await store.patchSession(date, kind, body.id,
+          instant === undefined ? patch : { ...patch, at: instant })
         sendJson(res, 200, stateFor(date))
         return
       }
@@ -260,19 +335,22 @@ export function createApiHandler(deps: ApiDeps): WebRoute['handler'] {
       }
 
       case 'PUT /run': {
-        const body = parse(z.object({
+        const raw = parse(z.object({
           date: DATE.optional(),
+          /** Optional clock time; absent means "now". */
+          time: z.string().optional(),
           at: ISO.optional(),
           minutes: z.number().positive().optional(),
           distanceKm: z.number().nonnegative(),
           avgHr: z.number().int().positive().optional(),
         }), await readJson(req), 'run')
-        const date = dateOf(body, today())
+        const date = dateOf(raw, today())
+        const body = resolveAt(raw, date)
         const run = {
-          at: body.at ?? iso(),
-          minutes: body.minutes ?? deps.config.defaultRunMinutes,
-          distanceKm: body.distanceKm,
-          ...(body.avgHr === undefined ? {} : { avgHr: body.avgHr }),
+          at: typeof body.at === 'string' ? body.at : iso(),
+          minutes: raw.minutes ?? deps.config.defaultRunMinutes,
+          distanceKm: raw.distanceKm,
+          ...(raw.avgHr === undefined ? {} : { avgHr: raw.avgHr }),
         }
         await store.mutateDay(date, day => ({ ...day, run }))
         sendJson(res, 200, stateFor(date))
@@ -300,13 +378,16 @@ export function createApiHandler(deps: ApiDeps): WebRoute['handler'] {
       }
 
       case 'POST /laundry/wash': {
-        const body = parse(z.object({
+        const raw = parse(z.object({
           date: DATE.optional(),
           pieces: z.number().int().positive(),
+          /** Optional clock time; absent means "now". */
+          time: z.string().optional(),
           at: ISO.optional(),
         }), await readJson(req), 'laundry wash')
-        const date = dateOf(body, today())
-        const { stock } = await store.wash(date, body.pieces, body.at ?? iso())
+        const date = dateOf(raw, today())
+        const body = resolveAt(raw, date)
+        const { stock } = await store.wash(date, raw.pieces, typeof body.at === 'string' ? body.at : iso())
         sendJson(res, 200, { ...stateFor(date), stock })
         return
       }

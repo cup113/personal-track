@@ -83,3 +83,62 @@ export function dayKeyRange(from: DayKey, to: DayKey): DayKey[] {
 export function isWithin(key: DayKey, from: DayKey, to: DayKey): boolean {
   return compareDayKeys(key, from) >= 0 && compareDayKeys(key, to) <= 0
 }
+
+/** Offset of a zone from UTC at one instant, in milliseconds. */
+function zoneOffsetMs(timezone: string, instant: Date): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(instant)
+  const field = (type: Intl.DateTimeFormatPartTypes): number =>
+    Number(parts.find(part => part.type === type)?.value ?? '0')
+  const asUtc = Date.UTC(
+    field('year'), field('month') - 1, field('day'),
+    field('hour'), field('minute'), field('second'),
+  )
+  return asUtc - instant.getTime()
+}
+
+/** The instant for a wall-clock time on a calendar day, in the boundary's zone. */
+function zonedInstant(
+  calendarKey: DayKey,
+  hour: number,
+  minute: number,
+  second: number,
+  timezone: string | undefined,
+): string {
+  const [year, month, day] = calendarKey.split('-').map(Number) as [number, number, number]
+  if (timezone === undefined) {
+    return new Date(year, month - 1, day, hour, minute, second).toISOString()
+  }
+  const guess = Date.UTC(year, month - 1, day, hour, minute, second)
+  const first = zoneOffsetMs(timezone, new Date(guess))
+  let instant = guess - first
+  const settled = zoneOffsetMs(timezone, new Date(instant))
+  if (settled !== first) instant = guess - settled
+  return new Date(instant).toISOString()
+}
+
+/**
+ * Resolve a clock time (`HH:mm` or `HH:mm:ss`) back to an instant **inside**
+ * the given habit day.
+ *
+ * This is the inverse of {@link habitDayKey}, and it is why the client never
+ * builds timestamps itself: a time before the boundary hour belongs to the
+ * calendar day *after* the key (the night tail), so 01:30 recorded on the habit
+ * day `2026-09-16` is `2026-09-17T01:30` — exactly what a person means by
+ * "half past one last night".
+ */
+export function instantForHabitDay(key: DayKey, clock: string, boundary: DayBoundary): string {
+  assertDayKey(key)
+  const match = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(clock.trim())
+  if (match === null) throw new Error(`invalid clock time: ${clock}`)
+  const hour = Number(match[1])
+  const minute = Number(match[2])
+  const second = Number(match[3] ?? '0')
+  if (hour > 23 || minute > 59 || second > 59) throw new Error(`invalid clock time: ${clock}`)
+  const calendarKey = hour < boundary.dayStartHour ? shiftDayKey(key, 1) : key
+  return zonedInstant(calendarKey, hour, minute, second, boundary.timezone)
+}

@@ -13,6 +13,7 @@ import {
   compareDayKeys,
   dayKeyRange,
   habitDayKey,
+  instantForHabitDay,
   isNightTail,
   shiftDayKey,
 } from '../src/host/daykey.ts'
@@ -82,6 +83,41 @@ check('03:00 in Shanghai belongs to the previous day', () => {
 check('04:00 in Shanghai starts the new day', () => {
   // 2026-09-15T20:00Z = 2026-09-16 04:00 in CST
   assert.equal(habitDayKey(new Date('2026-09-15T20:00:00Z'), shanghai), '2026-09-16')
+})
+
+console.log('clock time → instant inside the habit day')
+check('a daytime time stays on the key day', () => {
+  const instant = instantForHabitDay('2026-09-16', '07:30', local)
+  assert.equal(habitDayKey(new Date(instant), local), '2026-09-16')
+})
+check('a night-tail time stays in the day but on the next calendar date', () => {
+  const instant = instantForHabitDay('2026-09-16', '01:30', local)
+  assert.equal(habitDayKey(new Date(instant), local), '2026-09-16', 'still the same habit day')
+  // The ISO prefix is UTC, which is NOT the local calendar date — format in the
+  // boundary's own zone instead.
+  const localDate = new Date(instant).toLocaleDateString('en-CA')
+  assert.equal(localDate, '2026-09-17', 'the next local calendar date')
+})
+check('every hour of the day round-trips', () => {
+  for (let hour = 0; hour < 24; hour += 1) {
+    for (const minute of [0, 15, 59]) {
+      const clock = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+      const instant = instantForHabitDay('2026-09-16', clock, local)
+      assert.equal(habitDayKey(new Date(instant), local), '2026-09-16', `${clock} must stay inside the day`)
+    }
+  }
+})
+check('a fixed-zone boundary converts the same way', () => {
+  for (const clock of ['00:30', '03:59', '04:00', '23:59']) {
+    const instant = instantForHabitDay('2026-09-16', clock, shanghai)
+    assert.equal(habitDayKey(new Date(instant), shanghai), '2026-09-16', `${clock} in Asia/Shanghai`)
+  }
+})
+check('seconds are accepted and impossible times are refused', () => {
+  const instant = instantForHabitDay('2026-09-16', '07:30:45', local)
+  assert.equal(habitDayKey(new Date(instant), local), '2026-09-16')
+  assert.throws(() => instantForHabitDay('2026-09-16', '25:00', local))
+  assert.throws(() => instantForHabitDay('2026-09-16', '7点半', local))
 })
 
 console.log('key arithmetic')
