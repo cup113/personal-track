@@ -24,6 +24,7 @@ import {
   cellProgress,
   dayCells,
   isOverdue,
+  isPerfectDay,
   taskState,
   vocabProgress,
   type Cell,
@@ -68,10 +69,26 @@ export interface TaskView extends TaskRecord {
   readonly overdue: boolean
 }
 
+/** Everything derived from one habit day, with its document read once. */
+export interface DayFacts {
+  readonly date: DayKey
+  /** The stored document, or null for an untouched day. */
+  readonly stored: DayRecord | null
+  /** The day as the UI sees it: an absent vocabulary block is filled in. */
+  readonly day: DayRecord
+  readonly target: VocabTarget
+  readonly vocab: VocabProgress
+  readonly cells: Cell[]
+  readonly progress: { readonly done: number; readonly total: number }
+  readonly perfect: boolean
+}
+
 /** The store surface the API and the statistics use. */
 export interface HabitStore {
   /** The stored document, or undefined for an untouched day. */
   readDay(key: DayKey): DayRecord | undefined
+  /** The stored document plus every value derived from it. */
+  dayFacts(key: DayKey): DayFacts
   /** Own target snapshot → carry-forward → config default. */
   resolveTarget(key: DayKey): VocabTarget
   view(key: DayKey, today: DayKey): StateView
@@ -205,19 +222,33 @@ export function createHabitStore(domain: HabitDomain, config: Config): HabitStor
   const store: HabitStore = {
     readDay: key => days.get(key),
 
+    dayFacts(key) {
+      const record = effective(key)
+      return {
+        date: key,
+        stored: days.get(key) ?? null,
+        day: record,
+        target: copyTarget(record.vocab?.target ?? config.defaultVocabTarget),
+        vocab: vocabProgress(record) ?? NO_PROGRESS,
+        cells: dayCells(record),
+        progress: cellProgress(record),
+        perfect: isPerfectDay(record),
+      }
+    },
+
     resolveTarget,
 
     view(key, today) {
-      const record = effective(key)
+      const facts = store.dayFacts(key)
       return {
         day: {
           date: key,
           isToday: key === today,
-          day: days.get(key) ?? null,
-          target: copyTarget(record.vocab?.target ?? config.defaultVocabTarget),
-          vocab: vocabProgress(record) ?? NO_PROGRESS,
-          cells: dayCells(record),
-          progress: cellProgress(record),
+          day: facts.stored,
+          target: facts.target,
+          vocab: facts.vocab,
+          cells: facts.cells,
+          progress: facts.progress,
         },
         stock: stock(),
         media: byCreatedAtDesc([...media.entries()].map(([, record]) => record)),
@@ -274,8 +305,19 @@ export function createHabitStore(domain: HabitDomain, config: Config): HabitStor
 
     putMedia: record => media.put(record.id, record),
 
-    patchMedia: (id, patch) => media.update(id, current =>
-      mediaRecord.parse(withoutCleared({ ...current, ...patch, id }))),
+    patchMedia: (id, patch) => media.update(id, (current) => {
+      const parsed = mediaRecord.parse(withoutCleared({ ...current, ...patch, id }))
+      // Symmetric with tasks: the instant a title was finished is a fact the
+      // store keeps in step with the status, not something callers must send.
+      if (parsed.status === 'done' && parsed.finishedAt === undefined) {
+        return { ...parsed, finishedAt: new Date().toISOString() }
+      }
+      if (parsed.status !== 'done' && parsed.finishedAt !== undefined) {
+        const { finishedAt: _cleared, ...rest } = parsed
+        return rest
+      }
+      return parsed
+    }),
 
     deleteMedia: id => media.delete(id),
 

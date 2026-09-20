@@ -50,10 +50,12 @@ const CATEGORIES: readonly { readonly value: Category; readonly label: string }[
 /** Props handed in by the slot registration's injection face. */
 export interface BoardBodyProps {
   readonly client: HabitClient
+  /** Opens the statistics page in the main area. */
+  readonly openStats: () => void
 }
 
 /** Render the board. */
-export function BoardBody({ client }: BoardBodyProps): JSX.Element {
+export function BoardBody({ client, openStats }: BoardBodyProps): JSX.Element {
   const [clock, setClock] = useState<ClockView | null>(null)
   const [date, setDate] = useState<string | null>(null)
   const [state, setState] = useState<StateView | null>(null)
@@ -163,6 +165,8 @@ export function BoardBody({ client }: BoardBodyProps): JSX.Element {
           sub="今日"
         />
         {day === undefined ? null : <Chip cells={day.cells} progress={day.progress} />}
+        <span className="pt-grow" />
+        <button type="button" className="pt-ghost" onClick={openStats} title="打开统计页">统计</button>
       </div>
 
       <DateNav date={date} today={clock.today} night={clock.nightTail} onChange={goTo} />

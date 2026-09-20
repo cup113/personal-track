@@ -176,3 +176,99 @@ export interface ClockView {
     readonly defaultRunMinutes: number
   }
 }
+
+/** One habit's record across a statistics range. */
+export interface HabitStats {
+  readonly id: string
+  readonly met: number
+  readonly days: number
+  readonly ratio: number
+  readonly streak: number
+  /** One flag per day, aligned with {@link StatsView.days}. */
+  readonly perDay: readonly boolean[]
+}
+
+/** One day's completion, for the heat grid. */
+export interface DayStats {
+  readonly date: string
+  readonly done: number
+  readonly total: number
+  readonly stored: boolean
+}
+
+/** One run, as a point on the heart-rate / pace curve. */
+export interface RunPoint {
+  readonly date: string
+  readonly pace: number
+  readonly avgHr: number
+  readonly km: number
+  readonly minutes: number
+}
+
+/** A media entry as the statistics panel lists it. */
+export interface MediaSummary {
+  readonly id: string
+  readonly kind: 'film' | 'book'
+  readonly title: string
+  readonly status: 'active' | 'done' | 'dropped'
+  readonly rating?: number
+  readonly finishedAt?: string
+}
+
+/** The statistics panel's data, computed entirely on the host. */
+export interface StatsView {
+  readonly from: string
+  readonly to: string
+  readonly days: readonly DayStats[]
+  readonly habits: readonly HabitStats[]
+  readonly perfectDays: number
+  readonly vocab: {
+    readonly new: number
+    readonly review: number
+    readonly minutes: number
+    readonly daysMet: number
+    readonly surplus: number
+  }
+  readonly duolingo: { readonly lessons: number; readonly minutes: number; readonly daysMet: number }
+  readonly runs: {
+    readonly count: number
+    readonly km: number
+    readonly avgHr?: number
+    readonly points: readonly RunPoint[]
+  }
+  readonly rope: {
+    readonly sets: number
+    readonly sets90: number
+    readonly sets180: number
+    readonly seconds: number
+    readonly avgHr?: number
+  }
+  readonly pullup: { readonly sets: number; readonly seconds: number }
+  readonly equipment: {
+    readonly sets: number
+    readonly reps: number
+    readonly byName: readonly { readonly name: string; readonly sets: number; readonly reps: number }[]
+  }
+  readonly washing: { readonly count: number; readonly pieces: number }
+  readonly meals: {
+    readonly slots: readonly { readonly slot: string; readonly days: number; readonly ratio: number }[]
+    readonly spend: number
+    readonly spendBySlot: readonly { readonly slot: string; readonly amount: number }[]
+  }
+  readonly media: {
+    readonly finished: number
+    readonly films: number
+    readonly books: number
+    readonly active: number
+    readonly dropped: number
+    readonly avgRating?: number
+    readonly recently: readonly MediaSummary[]
+  }
+  readonly tasks: {
+    readonly done: number
+    readonly doneLate: number
+    readonly open: number
+    readonly doing: number
+    readonly overdue: number
+  }
+}

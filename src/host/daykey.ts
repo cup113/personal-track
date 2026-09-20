@@ -84,6 +84,23 @@ export function isWithin(key: DayKey, from: DayKey, to: DayKey): boolean {
   return compareDayKeys(key, from) >= 0 && compareDayKeys(key, to) <= 0
 }
 
+/**
+ * How many days `[from, to]` spans, inclusive.
+ *
+ * A cheap validation path: it counts without building the array (and stops at
+ * `cap`), so an absurd range can be rejected before anything materializes.
+ */
+export function dayKeySpan(from: DayKey, to: DayKey, cap = 10_000): number {
+  assertDayKey(from)
+  assertDayKey(to)
+  let span = 0
+  for (let key = from; compareDayKeys(key, to) <= 0; key = shiftDayKey(key, 1)) {
+    span += 1
+    if (span > cap) return span
+  }
+  return span
+}
+
 /** Offset of a zone from UTC at one instant, in milliseconds. */
 function zoneOffsetMs(timezone: string, instant: Date): number {
   const parts = new Intl.DateTimeFormat('en-US', {

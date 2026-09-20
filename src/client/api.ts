@@ -5,7 +5,7 @@
  * to re-read after a write. Failures arrive as `HabitApiError`, carrying the
  * host's own code so the UI can say something specific.
  */
-import type { ClockView, MediaEntry, StateView, TaskEntry } from './types.ts'
+import type { ClockView, MediaEntry, StateView, StatsView, TaskEntry } from './types.ts'
 
 /** The API prefix this plugin owns on the GUI host. */
 const BASE = '/habit/api'
@@ -79,6 +79,8 @@ export interface HabitClient {
   addTask(input: TaskInput): Promise<TaskResult>
   patchTask(id: string, patch: TaskPatch): Promise<TaskResult>
   removeTask(id: string): Promise<TaskResult>
+  /** Range aggregates, computed on the host. */
+  stats(from: string, to: string): Promise<StatsView>
 }
 
 /** Fields a new media entry carries. */
@@ -237,5 +239,6 @@ export function createHabitClient(): HabitClient {
     addTask: input => request<TaskResult>('/tasks', body('POST', input)),
     patchTask: (id, patch) => request<TaskResult>('/tasks', body('PATCH', { id, patch })),
     removeTask: id => request<TaskResult>(`/tasks${query({ id })}`, { method: 'DELETE' }),
+    stats: (from, to) => request<StatsView>(`/stats${query({ from, to })}`),
   }
 }

@@ -1,0 +1,353 @@
+/**
+ * Range statistics: everything the statistics panel shows, computed on demand.
+ *
+ * Nothing here is persisted (docs/adr/0002-derived-state-not-stored.md), and
+ * nothing is computed on the client either: the host already holds every day in
+ * memory, so one pass over the requested range answers the whole panel. The
+ * per-day `dayFacts` are memoized, so a range costs one document read per day
+ * no matter how many figures are derived from it.
+ */
+import { paceMinPerKm, streakFor } from './derive.ts'
+import { dayKeyRange, habitDayKey, type DayKey } from './daykey.ts'
+import type { DayBoundary } from './config.ts'
+import type { DayFacts, HabitStore } from './store.ts'
+
+/** How far back a streak is allowed to look (a year and a bit). */
+const STREAK_SCAN_DAYS = 400
+
+/** One habit's record across the range. */
+export interface HabitStats {
+  readonly id: string
+  readonly met: number
+  readonly days: number
+  readonly ratio: number
+  readonly streak: number
+  /** One flag per day of the range, aligned with {@link StatsView.days}. */
+  readonly perDay: readonly boolean[]
+}
+
+/** One day's completion, for the heat grid. */
+export interface DayStats {
+  readonly date: DayKey
+  readonly done: number
+  readonly total: number
+  /** False for an untouched day — the grid draws those differently. */
+  readonly stored: boolean
+}
+
+/** One run, as a point on the heart-rate / pace curve. */
+export interface RunPoint {
+  readonly date: DayKey
+  readonly pace: number
+  readonly avgHr: number
+  readonly km: number
+  readonly minutes: number
+}
+
+/** A media entry as the panel lists it. */
+export interface MediaSummary {
+  readonly id: string
+  readonly kind: 'film' | 'book'
+  readonly title: string
+  readonly status: 'active' | 'done' | 'dropped'
+  readonly rating?: number
+  readonly finishedAt?: string
+}
+
+/** The whole statistics panel. */
+export interface StatsView {
+  readonly from: DayKey
+  readonly to: DayKey
+  readonly days: readonly DayStats[]
+  readonly habits: readonly HabitStats[]
+  readonly perfectDays: number
+  readonly vocab: {
+    readonly new: number
+    readonly review: number
+    readonly minutes: number
+    readonly daysMet: number
+    readonly surplus: number
+  }
+  readonly duolingo: { readonly lessons: number; readonly minutes: number; readonly daysMet: number }
+  readonly runs: {
+    readonly count: number
+    readonly km: number
+    readonly avgHr?: number
+    /** Only the runs that carry both a distance and a heart rate. */
+    readonly points: readonly RunPoint[]
+  }
+  readonly rope: {
+    readonly sets: number
+    readonly sets90: number
+    readonly sets180: number
+    readonly seconds: number
+    readonly avgHr?: number
+  }
+  readonly pullup: { readonly sets: number; readonly seconds: number }
+  readonly equipment: {
+    readonly sets: number
+    readonly reps: number
+    readonly byName: readonly { readonly name: string; readonly sets: number; readonly reps: number }[]
+  }
+  readonly washing: { readonly count: number; readonly pieces: number }
+  readonly meals: {
+    readonly slots: readonly { readonly slot: string; readonly days: number; readonly ratio: number }[]
+    readonly spend: number
+    readonly spendBySlot: readonly { readonly slot: string; readonly amount: number }[]
+  }
+  readonly media: {
+    /** Finished inside the range. */
+    readonly finished: number
+    /** Current totals, independent of the range. */
+    readonly films: number
+    readonly books: number
+    readonly active: number
+    readonly dropped: number
+    readonly avgRating?: number
+    readonly recently: readonly MediaSummary[]
+  }
+  readonly tasks: {
+    /** Completed inside the range. */
+    readonly done: number
+    /** …of which were finished after their due date. */
+    readonly doneLate: number
+    /** Current counts, independent of the range. */
+    readonly open: number
+    readonly doing: number
+    readonly overdue: number
+  }
+}
+
+/** Average of the defined numbers, or undefined for an empty set. */
+function average(values: readonly number[]): number | undefined {
+  if (values.length === 0) return undefined
+  return values.reduce((sum, value) => sum + value, 0) / values.length
+}
+
+/** Round to one decimal, keeping integers whole. */
+const round1 = (value: number): number => Math.round(value * 10) / 10
+
+/** Build the panel for `[from, to]`. */
+export function buildStats(
+  store: HabitStore,
+  from: DayKey,
+  to: DayKey,
+  boundary: DayBoundary,
+): StatsView {
+  const keys = dayKeyRange(from, to)
+  const factsCache = new Map<DayKey, DayFacts>()
+  const factsOf = (key: DayKey): DayFacts => {
+    const cached = factsCache.get(key)
+    if (cached !== undefined) return cached
+    const facts = store.dayFacts(key)
+    factsCache.set(key, facts)
+    return facts
+  }
+
+  /** The habit-day a stored instant belongs to. */
+  const dayOfInstant = (instant: string | undefined): DayKey | undefined =>
+    instant === undefined ? undefined : habitDayKey(new Date(instant), boundary)
+
+  // --- the seven habits (washing up counts once, against its two-a-day goal)
+  const predicates: readonly { readonly id: string; readonly met: (facts: DayFacts) => boolean }[] = [
+    { id: 'wash', met: facts => facts.day.washes.times.length >= 2 },
+    { id: 'shower', met: facts => facts.day.shower.at !== null },
+    { id: 'breakfast', met: facts => facts.day.meals.breakfast !== undefined },
+    { id: 'lunch', met: facts => facts.day.meals.lunch !== undefined },
+    { id: 'dinner', met: facts => facts.day.meals.dinner !== undefined },
+    { id: 'vocab', met: facts => facts.vocab.met },
+    { id: 'duolingo', met: facts => facts.day.duolingo.length > 0 },
+  ]
+
+  const habits: HabitStats[] = predicates.map(({ id, met }) => {
+    const perDay = keys.map(key => met(factsOf(key)))
+    const metDays = perDay.filter(Boolean).length
+    return {
+      id,
+      met: metDays,
+      days: keys.length,
+      ratio: keys.length === 0 ? 0 : metDays / keys.length,
+      streak: streakFor(to, key => met(factsOf(key)), STREAK_SCAN_DAYS),
+      perDay,
+    }
+  })
+
+  // --- per-day completion, for the heat grid
+  const days: DayStats[] = keys.map((key) => {
+    const facts = factsOf(key)
+    return { date: key, done: facts.progress.done, total: facts.progress.total, stored: facts.stored !== null }
+  })
+  const perfectDays = keys.filter(key => factsOf(key).perfect).length
+
+  // --- study
+  let vocabNew = 0
+  let vocabReview = 0
+  let vocabMinutes = 0
+  let vocabSurplus = 0
+  let vocabDaysMet = 0
+  let lessons = 0
+  let lessonMinutes = 0
+  let lessonDays = 0
+  for (const key of keys) {
+    const facts = factsOf(key)
+    vocabNew += facts.vocab.doneNew
+    vocabReview += facts.vocab.doneReview
+    vocabMinutes += facts.vocab.minutes
+    vocabSurplus += facts.vocab.surplusNew + facts.vocab.surplusReview
+    if (facts.vocab.met) vocabDaysMet += 1
+    if (facts.day.duolingo.length > 0) lessonDays += 1
+    for (const lesson of facts.day.duolingo) {
+      lessons += 1
+      lessonMinutes += lesson.minutes
+    }
+  }
+
+  // --- training
+  const runPoints: RunPoint[] = []
+  let runCount = 0
+  let runKm = 0
+  const runHr: number[] = []
+  const ropeHr: number[] = []
+  let ropeSets = 0
+  let rope90 = 0
+  let rope180 = 0
+  let ropeSeconds = 0
+  let pullupSets = 0
+  let pullupSeconds = 0
+  const equipmentByName = new Map<string, { sets: number; reps: number }>()
+  let washingCount = 0
+  let washingPieces = 0
+  for (const key of keys) {
+    const day = factsOf(key).day
+    if (day.run !== null) {
+      const pace = paceMinPerKm(day.run.minutes, day.run.distanceKm)
+      runCount += 1
+      runKm += day.run.distanceKm
+      if (day.run.avgHr !== undefined) runHr.push(day.run.avgHr)
+      if (pace !== undefined && day.run.avgHr !== undefined) {
+        runPoints.push({
+          date: key,
+          pace: round1(pace),
+          avgHr: day.run.avgHr,
+          km: day.run.distanceKm,
+          minutes: day.run.minutes,
+        })
+      }
+    }
+    for (const set of day.rope) {
+      ropeSets += 1
+      if (set.preset === 90) rope90 += 1
+      else rope180 += 1
+      ropeSeconds += set.seconds
+      if (set.avgHr !== undefined) ropeHr.push(set.avgHr)
+    }
+    pullupSets += day.pullup.length
+    for (const set of day.pullup) pullupSeconds += set.seconds
+    for (const set of day.equipment) {
+      const entry = equipmentByName.get(set.name) ?? { sets: 0, reps: 0 }
+      entry.sets += 1
+      entry.reps += set.reps
+      equipmentByName.set(set.name, entry)
+    }
+    washingCount += day.washing.length
+    for (const wash of day.washing) washingPieces += wash.pieces
+  }
+
+  // --- meals
+  const mealSlots = ['breakfast', 'lunch', 'dinner'] as const
+  const slotStats = mealSlots.map((slot) => {
+    let count = 0
+    let amount = 0
+    for (const key of keys) {
+      const meal = factsOf(key).day.meals[slot]
+      if (meal === undefined) continue
+      count += 1
+      amount += meal.price ?? 0
+    }
+    return { slot, days: count, ratio: keys.length === 0 ? 0 : count / keys.length, amount }
+  })
+
+  // --- registries (the day-derived states are read through a view at `to`)
+  const registry = store.view(to, to)
+  const finishedInRange = (instant: string | undefined): boolean => {
+    const day = dayOfInstant(instant)
+    return day !== undefined && day >= from && day <= to
+  }
+  const mediaDone = registry.media.filter(entry => entry.status === 'done')
+  const ratings = registry.media
+    .map(entry => entry.rating)
+    .filter((rating): rating is number => rating !== undefined)
+  const recently: MediaSummary[] = registry.media.slice(0, 5).map(entry => ({
+    id: entry.id,
+    kind: entry.kind,
+    title: entry.title,
+    status: entry.status,
+    ...(entry.rating === undefined ? {} : { rating: entry.rating }),
+    ...(entry.finishedAt === undefined ? {} : { finishedAt: entry.finishedAt }),
+  }))
+
+  const completedTasks = registry.tasks.filter(task => finishedInRange(task.completedAt))
+  const doneLate = completedTasks.filter((task) => {
+    const completedDay = dayOfInstant(task.completedAt)
+    return task.due !== undefined && completedDay !== undefined && completedDay > task.due
+  }).length
+
+  return {
+    from,
+    to,
+    days,
+    habits,
+    perfectDays,
+    vocab: {
+      new: vocabNew,
+      review: vocabReview,
+      minutes: vocabMinutes,
+      daysMet: vocabDaysMet,
+      surplus: vocabSurplus,
+    },
+    duolingo: { lessons, minutes: lessonMinutes, daysMet: lessonDays },
+    runs: {
+      count: runCount,
+      km: round1(runKm),
+      ...(average(runHr) === undefined ? {} : { avgHr: Math.round(average(runHr) as number) }),
+      points: runPoints,
+    },
+    rope: {
+      sets: ropeSets,
+      sets90: rope90,
+      sets180: rope180,
+      seconds: ropeSeconds,
+      ...(average(ropeHr) === undefined ? {} : { avgHr: Math.round(average(ropeHr) as number) }),
+    },
+    pullup: { sets: pullupSets, seconds: pullupSeconds },
+    equipment: {
+      sets: [...equipmentByName.values()].reduce((sum, entry) => sum + entry.sets, 0),
+      reps: [...equipmentByName.values()].reduce((sum, entry) => sum + entry.reps, 0),
+      byName: [...equipmentByName.entries()]
+        .map(([name, entry]) => ({ name, sets: entry.sets, reps: entry.reps }))
+        .sort((a, b) => b.reps - a.reps),
+    },
+    washing: { count: washingCount, pieces: washingPieces },
+    meals: {
+      slots: slotStats.map(({ slot, days: count, ratio }) => ({ slot, days: count, ratio })),
+      spend: round1(slotStats.reduce((sum, slot) => sum + slot.amount, 0)),
+      spendBySlot: slotStats.map(({ slot, amount }) => ({ slot, amount: round1(amount) })),
+    },
+    media: {
+      finished: mediaDone.filter(entry => finishedInRange(entry.finishedAt)).length,
+      films: registry.media.filter(entry => entry.kind === 'film').length,
+      books: registry.media.filter(entry => entry.kind === 'book').length,
+      active: registry.media.filter(entry => entry.status === 'active').length,
+      dropped: registry.media.filter(entry => entry.status === 'dropped').length,
+      ...(average(ratings) === undefined ? {} : { avgRating: round1(average(ratings) as number) }),
+      recently,
+    },
+    tasks: {
+      done: completedTasks.length,
+      doneLate,
+      open: registry.tasks.filter(task => task.state !== 'done').length,
+      doing: registry.tasks.filter(task => task.state === 'doing').length,
+      overdue: registry.tasks.filter(task => task.overdue).length,
+    },
+  }
+}

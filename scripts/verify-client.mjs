@@ -48,7 +48,7 @@ const exports_ = loaded.factory(require)
 assert.equal(typeof exports_.apply, 'function', 'the client half exports apply')
 assert.deepEqual(exports_.inject, ['slots', 'sidebarRightTabs'], 'client half injects the two services it uses')
 
-const seen = { tabTypes: [], slotRegistrations: [], effects: 0 }
+const seen = { tabTypes: [], slotRegistrations: [], effects: 0, selectedPanels: [] }
 
 const ctx = {
   effect(fn) {
@@ -59,6 +59,11 @@ const ctx = {
     register(definition) {
       seen.tabTypes.push(definition)
       return () => {}
+    },
+  },
+  layout: {
+    selectPanel(id) {
+      seen.selectedPanels.push(id)
     },
   },
   slots: {
@@ -75,7 +80,7 @@ const ctx = {
 
 exports_.apply(ctx)
 
-assert.equal(seen.effects, 2, 'apply registers two effects (tab type + body)')
+assert.equal(seen.effects, 4, 'apply registers four effects (tab type, board, stats panel, sidebar entry)')
 assert.equal(appended.length, 1, 'apply injects the stylesheet exactly once')
 
 const [tabType] = seen.tabTypes
@@ -87,9 +92,10 @@ assert.equal(tabType.title('/'), '习惯看板')
 assert.equal(tabType.guide?.length, 1, 'the board offers one guide entry')
 assert.equal(typeof tabType.guide[0].title, 'function')
 
-const [body] = seen.slotRegistrations
+const registrationFor = name => seen.slotRegistrations.find(entry => entry.spec.name === name)
+
+const body = registrationFor('sidebar.right.pane.tab')
 assert.ok(body, 'a tab body is registered')
-assert.equal(body.spec.name, 'sidebar.right.pane.tab')
 assert.equal(body.spec.key, 'personal-track-board')
 assert.equal(typeof body.component, 'function', 'the body is a component')
 
@@ -99,9 +105,25 @@ const face = body.spec.inject()
 for (const method of [
   'clock', 'state', 'check', 'uncheck', 'editCheck', 'setMeal', 'clearMeal', 'setStock', 'wash',
   'addSession', 'patchSession', 'removeSession', 'setVocabTarget', 'setRun', 'clearRun',
-  'addMedia', 'patchMedia', 'removeMedia', 'addTask', 'patchTask', 'removeTask',
+  'addMedia', 'patchMedia', 'removeMedia', 'addTask', 'patchTask', 'removeTask', 'stats',
 ]) {
   assert.equal(typeof face.client[method], 'function', `the face exposes ${method}()`)
 }
+
+// …and a way out of the sidebar, into the statistics page.
+assert.equal(typeof face.openStats, 'function', 'the face exposes openStats()')
+face.openStats()
+assert.deepEqual(seen.selectedPanels, ['personal-track-stats'], 'openStats selects the stats panel')
+
+const main = registrationFor('main')
+assert.ok(main, 'a main-area panel is registered')
+assert.equal(main.spec.key, 'personal-track-stats')
+assert.equal(typeof main.component, 'function', 'the stats panel is a component')
+
+const panellist = registrationFor('sidebar.panellist')
+assert.ok(panellist, 'a sidebar panel entry is registered')
+assert.equal(panellist.spec.id, 'personal-track-stats')
+assert.equal(panellist.spec.label(), '习惯统计')
+assert.equal(typeof panellist.component, 'function', 'the sidebar entry has an icon component')
 
 console.log('client bundle ✓  wrapper, exports, tab type, slot body, injection face and styles verified')

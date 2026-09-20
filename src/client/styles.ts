@@ -12,7 +12,8 @@
  * icon (a bare glyph that gains a surface on hover).
  */
 const CSS = `
-.pt-board {
+/* One palette shared by the sidebar board and the main-area statistics panel. */
+.pt-board, .pt-panel {
   --pt-surface: rgba(127,127,127,.07);
   --pt-surface-2: rgba(127,127,127,.13);
   --pt-line: rgba(127,127,127,.18);
@@ -23,10 +24,10 @@ const CSS = `
   --pt-info: rgba(96,150,215,.3);
   --pt-info-soft: rgba(96,150,215,.15);
   --pt-info-line: rgba(96,150,215,.45);
-  display: flex; flex-direction: column; gap: 9px;
-  padding: 10px 10px 26px;
   font-size: 13px; line-height: 1.45;
 }
+.pt-board { display: flex; flex-direction: column; gap: 9px; padding: 10px 10px 26px; }
+.pt-panel { display: flex; flex-direction: column; gap: 12px; padding: 16px 18px 32px; }
 
 /* ---- shared atoms ---------------------------------------------------- */
 .pt-muted { opacity: .6; }
@@ -198,6 +199,32 @@ const CSS = `
 .pt-badge-ok { border-color: var(--pt-accent-line); background: var(--pt-accent-soft); }
 .pt-badge-warn { border-color: rgba(220,140,90,.55); background: rgba(220,140,90,.18); }
 .pt-badge-dim { opacity: .55; }
+
+/* ---- the statistics panel (main area) -------------------------------- */
+.pt-panel-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.pt-panel-head h2 { margin: 0; font-size: 15px; font-weight: 650; }
+.pt-panel-head .pt-input { width: auto; }
+.pt-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.pt-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 8px; }
+.pt-facts { display: flex; flex-direction: column; gap: 3px; }
+.pt-fact { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.pt-fact > .pt-muted { flex: 1; }
+.pt-fact-value { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+.pt-heat { display: flex; flex-direction: column; gap: 3px; overflow-x: auto; }
+.pt-heat-row { display: flex; align-items: center; gap: 8px; }
+.pt-heat-label { width: 3.6em; flex-shrink: 0; font-size: 11px; opacity: .75; }
+.pt-heat-cells { display: flex; gap: 2px; flex: 1; }
+.pt-heat-cell { width: 10px; height: 10px; border-radius: 3px; background: var(--pt-surface-2); flex-shrink: 0; }
+.pt-heat-on { background: var(--pt-accent); }
+.pt-heat-count { width: 4.2em; text-align: right; font-size: 11px; opacity: .7; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.pt-heat-streak { width: 4.6em; text-align: right; font-size: 11px; opacity: .6; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+
+.pt-curve { width: 100%; height: auto; max-height: 220px; }
+.pt-curve-axis { stroke: var(--pt-line-strong); stroke-width: 1; }
+.pt-curve-line { fill: none; stroke: var(--pt-info-line); stroke-width: 1.5; }
+.pt-curve-dot { fill: var(--pt-accent); }
+.pt-curve-tick { fill: currentColor; opacity: .5; font-size: 9px; }
 
 /* ---- narrow fallback ------------------------------------------------- */
 @media (max-width: 260px) {

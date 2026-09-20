@@ -255,6 +255,60 @@ assert.equal(dropped.body.removed, true, 'media delete is a hard delete')
 assert.equal(dropped.body.media.length, 0)
 console.log('tasks + media ✓  (derived state, completion instant, null clears, hard delete)')
 
+// --- range statistics --------------------------------------------------------
+// Day-scoped figures are deterministic over the recorded day alone, so the
+// streak (which walks back from the range end) is asserted there.
+const dayStats = (await api.call('GET', `/stats?from=${DATE}&to=${DATE}`)).body
+assert.equal(dayStats.days.length, 1)
+assert.equal(dayStats.days[0].done, 5, 'wash ×2, shower, lunch, duolingo')
+assert.equal(dayStats.days[0].stored, true)
+assert.equal(dayStats.perfectDays, 0)
+const habitOf = id => dayStats.habits.find(habit => habit.id === id)
+assert.equal(habitOf('wash').met, 1, 'two washes satisfy the washing-up habit')
+assert.equal(habitOf('breakfast').met, 0)
+assert.equal(habitOf('vocab').met, 0, 'the vocabulary session was deleted')
+assert.equal(habitOf('duolingo').met, 1)
+assert.equal(habitOf('wash').streak, 1, 'the streak walks back from the range end')
+assert.equal(habitOf('breakfast').streak, 0)
+assert.deepEqual(habitOf('wash').perDay, [true], 'the heat matrix aligns with the day list')
+assert.deepEqual(habitOf('breakfast').perDay, [false])
+assert.equal(dayStats.vocab.daysMet, 0)
+assert.equal(dayStats.duolingo.lessons, 1)
+assert.equal(dayStats.duolingo.minutes, 12)
+assert.equal(dayStats.rope.sets, 2)
+assert.equal(dayStats.rope.sets90, 1)
+assert.equal(dayStats.rope.sets180, 1)
+assert.equal(dayStats.rope.seconds, 140)
+assert.equal(dayStats.pullup.sets, 1)
+assert.equal(dayStats.pullup.seconds, 32)
+assert.equal(dayStats.equipment.reps, 30)
+assert.equal(dayStats.equipment.byName[0].name, '划船机')
+assert.equal(dayStats.washing.count, 1)
+assert.equal(dayStats.washing.pieces, 3)
+assert.equal(dayStats.meals.spend, 12.5)
+assert.equal(dayStats.meals.slots.find(slot => slot.slot === 'lunch').days, 1)
+assert.equal(dayStats.runs.count, 0, 'the running entry was cleared')
+assert.deepEqual(dayStats.runs.points, [])
+
+// Completions are stamped with the real clock, so ask for a range that reaches
+// today before asserting on them.
+const clockToday = (await api.call('GET', '/clock')).body.today
+const rangeFrom = clockToday > DATE ? DATE : clockToday
+const stats = (await api.call('GET', `/stats?from=${rangeFrom}&to=${clockToday}`)).body
+assert.equal(stats.tasks.done, 1, 'one task was completed inside the range')
+assert.equal(stats.tasks.doneLate, 1, 'and it was already overdue when finished')
+assert.equal(stats.tasks.open, 1)
+assert.equal(stats.tasks.doing, 1)
+assert.equal(stats.tasks.overdue, 0)
+assert.equal(stats.media.films + stats.media.books, 0, 'the book was hard-deleted')
+
+const reversed = await api.call('GET', `/stats?from=${DATE}&to=2020-01-01`)
+assert.equal(reversed.status, 400, 'a reversed range is refused')
+const tooLong = await api.call('GET', `/stats?from=2000-01-01&to=${DATE}`)
+assert.equal(tooLong.status, 400)
+assert.equal(tooLong.body.error.code, 'habit/range-too-large')
+console.log('statistics ✓  (day cells, habits with streaks, training sums, spend, registries)')
+
 // --- failure shapes ----------------------------------------------------------
 const unknown = await api.call('GET', '/nope')
 assert.equal(unknown.status, 404)

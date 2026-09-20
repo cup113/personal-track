@@ -10,8 +10,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { z } from 'zod'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { Config, DayBoundary } from './config.ts'
-import { habitDayKey, instantForHabitDay, isNightTail, type DayKey } from './daykey.ts'
+import { habitDayKey, instantForHabitDay, isNightTail, dayKeySpan, type DayKey } from './daykey.ts'
 import { mediaRecord, taskRecord } from './domain.ts'
+import { buildStats } from './stats.ts'
 import type { HabitStore, SessionKind } from './store.ts'
 
 /** The prefix this plugin owns. */
@@ -399,6 +400,21 @@ export function createApiHandler(deps: ApiDeps): WebRoute['handler'] {
         }), await readJson(req), 'laundry stock')
         const stock = await store.setStock(body.pending, body.at ?? iso())
         sendJson(res, 200, { ...stateFor(today()), stock })
+        return
+      }
+
+      case 'GET /stats': {
+        const range = parse(z.object({
+          from: DATE.optional(),
+          to: DATE.optional(),
+        }), query, 'stats range')
+        const to = range.to ?? today()
+        const from = range.from ?? to
+        if (from > to) throw new ApiError(400, 'habit/bad-request', 'from 必须不晚于 to')
+        if (dayKeySpan(from, to, 401) > 400) {
+          throw new ApiError(400, 'habit/range-too-large', '统计范围最多 400 天')
+        }
+        sendJson(res, 200, { ok: true, ...buildStats(store, from, to, deps.boundary) })
         return
       }
 
