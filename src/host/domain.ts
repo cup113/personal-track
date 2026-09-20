@@ -8,7 +8,7 @@
  * docs/adr/0002-derived-state-not-stored.md.
  */
 import { z } from 'zod'
-import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
+import { defineDomain, domainTable, type Domain } from '@deepseek-ai/dsh-storage-domain'
 import type { DayKey } from './daykey.ts'
 
 /** Every session entry carries a stable id so edits never address by index. */
@@ -157,3 +157,6 @@ export const habitDomainSpec = defineDomain({
     tasks: domainTable<string, TaskRecord>(taskRecord),
   },
 })
+
+/** The opened handle this domain's consumers hold. */
+export type HabitDomain = Domain<typeof habitDomainSpec>

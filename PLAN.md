@@ -173,7 +173,7 @@ Host/Client 是**两个独立 tsconfig 程序**（两侧都向 cordis `Context` 
 
 ## 6. 构建与加载
 
-**package.json 要点**：`"type":"module"`、`exports: { ".":"./lib/index.js", "./client":"./lib/client.js", "./package.json":... }`、`dsh: { client:{platform:'web'}, bundle:{patch:'./cordis.patch.yml'} }`、peer 仅 `@deepseek-ai/cordis@^4.0.2`、dep `zod`、dev deps（cordis/react/@types/react/@types/node/esbuild/typescript/vitest）。
+**package.json 要点**：`"type":"module"`、`exports: { ".":"./lib/index.js", "./client":"./lib/client.js", "./package.json":... }`、`dsh: { client:{platform:'web'}, bundle:{patch:'./cordis.patch.yml'} }`、peer 仅 `@deepseek-ai/cordis@^4.0.2`、deps（`zod` + `@deepseek-ai/schemastery`，后者是 Config schema 的运行时依赖）、dev deps（cordis/react/@types/react/@types/node/esbuild/typescript）。
 
 **浏览器束契约**（`scripts/build.mjs` 调用 **esbuild CLI**，复刻仓库 preset 的输出形状；参照 `apps/web/tests/fixtures/plugins/fixture-live-client/`）：
 - **为何用 CLI 而非 esbuild JS API**：JS API 通过管道 stdio 与编译器子进程通信，被 DSH 文件沙箱拒绝（`spawn EPERM`）；CLI 本身就是编译器，以继承 stdio 执行，无需管道派生，构建链路因此在沙箱内永久可用（见 `scripts/build.mjs` 顶部注释）。
@@ -217,7 +217,7 @@ Host/Client 是**两个独立 tsconfig 程序**（两侧都向 cordis `Context` 
 
 ## 8. 测试
 
-宿主 vitest：daykey（03:59/04:00、时区）、目标向前继承、chip=8 计数、任务三态与逾期、配速、洗涤联动（扣存量+会话）、streak（空白天中断、补卡重算）、stats 聚合、API handler（fake req/res）、domain 读写（json 后端 tmp 目录）。客户端：最小冒烟（可选）。
+**测试策略（已按沙箱现实定案）**：**不用 vitest** —— vite/vitest 经 esbuild JS API 转换 TS，其管道派生被文件沙箱拒绝；改用 **Node 24 原生类型剥离**（`node tests/*.test.ts`），进程内执行、零测试工具链。宿主用例：daykey（03:59/04:00、时区覆盖、跨月跨年）、schema 默认值、chip=8 计数、目标进度与超额、任务三态与逾期、配速、洗涤联动（扣存量+会话）、streak（空白天中断、补卡重算）、stats 聚合、API handler、domain 读写（json 后端 tmp 目录）。客户端：facade 冒烟（`scripts/verify-client.mjs`）。
 
 ## 9. 明确出范围（v1）
 

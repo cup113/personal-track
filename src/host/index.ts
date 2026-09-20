@@ -1,35 +1,40 @@
 /**
- * personal-track — host half (M0 skeleton).
+ * personal-track — host half.
  *
- * Serves this plugin's own JSON API on `ctx.webServer`; the habit storage
- * domain is opened here from M1 on. Transport rationale:
- * docs/adr/0001-out-of-tree-transport.md.
+ * Opens the habit storage domain and serves the plugin's own JSON API on
+ * `ctx.webServer`. Transport rationale: docs/adr/0001-out-of-tree-transport.md.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
+import type {} from '@deepseek-ai/dsh-storage-domain'
+import { API_PREFIX, createApiHandler } from './api.ts'
+import { Config, boundaryOf } from './config.ts'
+import { habitDomainSpec } from './domain.ts'
+import { createHabitStore } from './store.ts'
 
-/** Plugin display name (diagnostics). */
+/** Plugin display name (diagnostics); the patch row's `id` must equal this. */
 export const name = 'personal-track'
 
 /** Required services: both must be live before `apply` runs. */
 export const inject = ['storageDomain', 'webServer']
 
-/** The API prefix this plugin owns on the GUI host. */
-const API_PREFIX = '/habit/api'
+export { Config }
 
-/** Register the M0 placeholder route. */
-export function apply(ctx: Context): void {
+/** Open the domain, build the store, and serve the API. */
+export async function apply(ctx: Context, config: Config): Promise<void> {
+  const domain = await ctx.storageDomain.open(habitDomainSpec)
+  ctx.effect(() => () => domain.close(), 'personal-track: close habit domain')
+
+  const handler = createApiHandler({
+    store: createHabitStore(domain, config),
+    boundary: boundaryOf(config),
+    config,
+    now: () => new Date(),
+  })
+
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
     path: API_PREFIX,
-    handler: (req, res) => {
-      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
-      res.end(JSON.stringify({
-        ok: true,
-        plugin: name,
-        stage: 'M0',
-        url: req.url ?? null,
-      }))
-    },
-  }), 'personal-track: /habit/api route')
+    handler,
+  }), 'personal-track: /habit/api routes')
 }

@@ -5,4 +5,5 @@
 node_modules/
 lib/
 .pnpm-store/
+.tmp/
 *.tsbuildinfo

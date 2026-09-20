@@ -23,6 +23,8 @@ export interface Config {
   timezone?: string
   /** Fallback vocabulary target for days with no earlier snapshot to inherit. */
   defaultVocabTarget: VocabTarget
+  /** Duration a running entry starts with in the UI. */
+  defaultRunMinutes: number
 }
 
 /** Validated configuration schema. */
@@ -33,6 +35,7 @@ export const Config: Schema<Config> = Schema.object({
     new: Schema.number().min(0).default(20),
     review: Schema.number().min(0).default(60),
   }).default({ new: 20, review: 60 }),
+  defaultRunMinutes: Schema.number().min(1).default(30),
 })
 
 /** The part of the configuration that habit-day arithmetic needs. */
