@@ -3,7 +3,6 @@
 DeepSeek Harness（DSH）插件：右侧栏的**每日习惯看板** + 主区域的**统计页**。
 
 - 领域语言：[CONTEXT.md](./CONTEXT.md) —— 五形态（打卡/计数器/槽位/会话/登记）、习惯日与夜段、目标、格、任务进度
-- 工程计划：[PLAN.md](./PLAN.md) —— 12 轮 grilling 后的决策总表与里程碑
 - 决策记录：[docs/adr/](./docs/adr/) —— 传输选型、状态派生不落库
 - 上游插件开发文档快照：`.dsh-docs/`（git 忽略）
 
@@ -42,6 +41,35 @@ DeepSeek Harness（DSH）插件：右侧栏的**每日习惯看板** + 主区域
 （先选文件预览条数，再决定**合并**还是**覆盖**）。详见 [数据](#数据)。
 
 ## 安装
+
+> **这是给自己写的插件，不是通用产品：习惯清单是硬编码的。**
+> 八个习惯格（洗漱 ×2、洗澡、三餐、背单词、多邻国）就写在 `src/host/derive.ts` 的 `CELL_IDS` 里，
+> 注释也直说「hard-coded in v1 by decision」——**没有"配置习惯"的开关**。
+> 所以**要自己用，强烈建议 fork 源码、把清单与常量改成自己的再构建**，而不是原样装上再找开关：
+> 改代码远比加开关便宜，直接装上的只是别人的作息表。
+
+走 `Config` 的只有下面四个（写在 `cordis.yml`，不改代码就能调）：
+
+| 字段 | 默认 | 作用 |
+|---|---|---|
+| `dayStartHour` | `4` | 习惯日起点；00:00–04:00 归前一晚 |
+| `timezone` | 本机时区 | 固定时区覆盖 |
+| `defaultVocabTarget` | `{ new: 20, review: 60 }` | 无历史快照可继承时的背单词目标 |
+| `defaultRunMinutes` | `30` | 新跑步记录的默认时长 |
+
+其余全在源码里，**所谓"二改"就是改这些文件**：
+
+| 要改的东西 | 位置 |
+|---|---|
+| 习惯清单、格数与格名 | `src/host/derive.ts` — `CELL_IDS` / `CELL_LABEL` |
+| 每格怎么算达成（洗漱 2 次、洗澡 1 次、三餐各 1 次、多邻国 ≥1 节） | `src/host/derive.ts` — `dayCells()`；次数上限校验在 `src/host/api.ts` |
+| 背单词加权（复习 1 词按新词 1/5 计） | `src/host/derive.ts` — `NEW_WEIGHT` / `REVIEW_WEIGHT` |
+| 存什么字段（域 schema，跳绳 90/180 之类的定数也在这里） | `src/host/domain.ts` |
+| 看板分组、卡片与顺序 | `src/client/board/BoardBody.tsx` |
+| 统计页的指标卡 | `src/client/board/stats-panel.tsx` |
+
+改完按 [开发](#开发) 重新构建：**动过宿主半身要重启 `dsh --profile web`**，只动客户端 bundle 是热重载。
+改到 `src/host/domain.ts` 就是改磁盘格式，别忘了那里的域 `version`。
 
 ```powershell
 # 持久安装（推荐）：pnpm link 到 web profile，需要重启一次

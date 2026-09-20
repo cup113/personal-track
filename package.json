@@ -2,6 +2,7 @@
   "name": "personal-track",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "DSH 个人习惯追踪插件：右侧栏每日看板 + 主面板统计",
   "main": "lib/index.js",
