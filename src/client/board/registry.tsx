@@ -315,6 +315,9 @@ function TaskRow({ entry, today, busy, onPatch, onEdit, onRemove }: {
   // `progress.current` (what the host last accepted).
   const shown = drag === null ? entry.progress.current : barValue(entry, drag)
   const commit = (next: number): void => onPatch({ progress: { current: next } })
+  // The count's box: wide enough for the widest reading this task can print
+  // (`10/10` and up), so a drag never re-layouts the row under the pointer.
+  const countWidth = Math.max(5, fractionText(total ?? 0).length * 2 + 1)
   const barClass = [
     'pt-task-bar',
     quantized ? '' : 'pt-task-bar-plain',
@@ -398,6 +401,7 @@ function TaskRow({ entry, today, busy, onPatch, onEdit, onRemove }: {
             <span
               className={drag === null ? 'pt-task-count' : 'pt-task-count pt-task-count-live'}
               title="当前 / 目标量"
+              style={{ minWidth: `${countWidth}ch` }}
             >
               {fractionText(shown)}/{fractionText(total)}
             </span>
@@ -411,6 +415,19 @@ function TaskRow({ entry, today, busy, onPatch, onEdit, onRemove }: {
   )
 }
 
+/**
+ * A finished task whose deadline has passed: answered business, ready to fold
+ * out of the live list.
+ *
+ * Purely a display derivation — nothing is stored or moved, and the host knows
+ * nothing about it (docs/adr/0002-derived-state-not-stored.md). A task merely
+ * finished, or merely past due, stays in the live list: one still celebrates
+ * its own due date, the other still wants attention.
+ */
+function isArchived(task: TaskEntry, today: string): boolean {
+  return task.state === 'done' && task.due !== undefined && task.due < today
+}
+
 /** Tasks and homework: due soonest first, with the derived state shown. */
 export function TaskTile({ tasks, today, busy, onAdd, onPatch, onRemove }: TaskTileProps): JSX.Element {
   const [mode, setMode] = useState<Mode>({ kind: 'idle' })
@@ -418,6 +435,43 @@ export function TaskTile({ tasks, today, busy, onAdd, onPatch, onRemove }: TaskT
   const overdue = tasks.filter(task => task.overdue).length
   const dueToday = tasks.filter(task => task.due === today).length
   const ordered = [...tasks].sort(byDeadline)
+  const live = ordered.filter(task => !isArchived(task, today))
+  const archived = ordered.filter(task => isArchived(task, today))
+
+  /** One task, as the open editor or as its row — the same in either list. */
+  const renderTask = (task: TaskEntry): JSX.Element => (mode.kind === 'edit' && mode.id === task.id
+    ? (
+      <FieldForm
+        key={task.id}
+        fields={TASK_FIELDS}
+        initial={{
+          title: task.title,
+          category: task.category,
+          due: task.due,
+          current: task.progress.current,
+          total: task.progress.total,
+          notes: task.notes,
+        }}
+        submitLabel="保存"
+        busy={busy}
+        onSubmit={(payload) => {
+          onPatch(task.id, taskPatch(payload, task))
+          setMode({ kind: 'idle' })
+        }}
+        onCancel={() => setMode({ kind: 'idle' })}
+      />
+    )
+    : (
+      <TaskRow
+        key={task.id}
+        entry={task}
+        today={today}
+        busy={busy}
+        onPatch={patch => onPatch(task.id, patch)}
+        onEdit={() => setMode({ kind: 'edit', id: task.id })}
+        onRemove={() => onRemove(task.id)}
+      />
+    ))
 
   return (
     <Tile span={2}>
@@ -429,40 +483,18 @@ export function TaskTile({ tasks, today, busy, onAdd, onPatch, onRemove }: TaskT
       </TileHead>
 
       {tasks.length === 0 && mode.kind === 'idle' ? <span className="pt-muted">还没有任务</span> : null}
+      {tasks.length > 0 && live.length === 0 && mode.kind === 'idle'
+        ? <span className="pt-muted">没有进行中的任务</span>
+        : null}
 
-      {ordered.map(task => (mode.kind === 'edit' && mode.id === task.id
-        ? (
-          <FieldForm
-            key={task.id}
-            fields={TASK_FIELDS}
-            initial={{
-              title: task.title,
-              category: task.category,
-              due: task.due,
-              current: task.progress.current,
-              total: task.progress.total,
-              notes: task.notes,
-            }}
-            submitLabel="保存"
-            busy={busy}
-            onSubmit={(payload) => {
-              onPatch(task.id, taskPatch(payload, task))
-              setMode({ kind: 'idle' })
-            }}
-            onCancel={() => setMode({ kind: 'idle' })}
-          />
-        )
-        : (
-          <TaskRow
-            key={task.id}
-            entry={task}
-            today={today}
-            busy={busy}
-            onPatch={patch => onPatch(task.id, patch)}
-            onEdit={() => setMode({ kind: 'edit', id: task.id })}
-            onRemove={() => onRemove(task.id)}
-          />
-        )))}
+      {live.map(renderTask)}
+
+      {archived.length === 0 ? null : (
+        <details className="pt-task-archive">
+          <summary title="过了截止日且已完成的任务">归档 {archived.length} 条</summary>
+          {archived.map(renderTask)}
+        </details>
+      )}
 
       {mode.kind === 'add'
         ? (

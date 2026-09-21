@@ -262,9 +262,13 @@ const CSS = `
 .pt-task-due { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pt-task-foot { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .pt-task-ok { font-size: 11px; color: rgba(90,175,120,.95); flex: none; }
-/* The current/total reading: a bar's length only approximates it. */
+/* The current/total reading: a bar's length only approximates it. The box is
+ * fixed (5ch holds 10/10) so a drag can never re-layout the row — the bar
+ * would otherwise shrink under the pointer at the 9-to-10 digit — and idle
+ * rows align. */
 .pt-task-count {
-  flex: none; font-size: 11px; opacity: .7;
+  flex: none; min-width: 5ch; text-align: center;
+  font-size: 11px; opacity: .7;
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 /* While a drag is open, the reading is a live figure, not a stored one. */
@@ -301,23 +305,41 @@ const CSS = `
 }
 .pt-task-late .pt-task-bar { border-color: rgba(220,96,96,.45); }
 
-/* The draggable handle, centred on the fill's leading edge. */
+/*
+ * The draggable handle, centred on the fill's leading edge. Solid on purpose:
+ * a translucent idle thumb washes out against the track, worst at either end
+ * where it stands half over the empty rail.
+ */
 .pt-task-thumb {
   position: absolute; top: 50%; width: 12px; height: 12px; border-radius: 50%;
   transform: translate(-50%, -50%);
-  border: 1.5px solid var(--pt-accent-line); background: var(--pt-accent-soft);
+  border: 1px solid rgba(64,146,98,1); background: var(--pt-accent);
   pointer-events: none;
-  transition: transform .12s ease, background .12s ease, border-color .12s ease;
+  transition: transform .12s ease;
 }
 .pt-task-bar:hover:not(:disabled) .pt-task-thumb,
-.pt-task-bar:focus-visible .pt-task-thumb { background: var(--pt-accent); }
-.pt-task-late .pt-task-thumb { border-color: rgba(220,96,96,.6); }
+.pt-task-bar:focus-visible .pt-task-thumb { transform: translate(-50%, -50%) scale(1.1); }
+.pt-task-late .pt-task-thumb { border-color: rgba(198,80,80,1); background: rgba(232,96,96,.95); }
 /* Mid-drag: no tween on the fill (the thumb must track the pointer exactly)
  * and the thumb grows to say it has the pointer. */
 .pt-task-bar-active .pt-task-fill { transition: none; }
 .pt-task-bar-active .pt-task-thumb {
-  background: var(--pt-accent); transform: translate(-50%, -50%) scale(1.15);
+  transform: translate(-50%, -50%) scale(1.15);
 }
+
+/* ---- the archive: finished, past due, out of the way ------------------ */
+/*
+ * A done task whose deadline has passed is answered business; it folds into
+ * this collapsed section so the live list carries only what still wants
+ * attention. Display-only derivation — nothing is stored or moved.
+ */
+.pt-task-archive { border-top: 1px dashed var(--pt-line); margin-top: 4px; padding-top: 3px; }
+.pt-task-archive summary {
+  cursor: pointer; font-size: 11px; opacity: .65; user-select: none;
+  padding: 1px 0 3px;
+}
+.pt-task-archive summary:hover { opacity: 1; }
+.pt-task-archive .pt-task { opacity: .78; }
 
 /* ---- the board's last row: the plain-text report ---------------------- */
 .pt-board-foot { display: flex; align-items: center; gap: 6px; padding: 0 2px; }
