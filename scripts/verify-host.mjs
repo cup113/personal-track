@@ -210,7 +210,10 @@ assert.equal(clearedRun.body.day.day.run, null, 'the running entry can be cleare
 console.log('running edit ✓  (explicit duration, then cleared)')
 
 // --- tasks (derived state) and media (hard delete) ---------------------------
-const task = await api.call('POST', '/tasks', { title: '线代作业', category: '数学', due: '2026-09-20' })
+// The due date is the host's own "today": a task due today is never overdue on
+// the day it is created, whatever day the script happens to run. A fixed date
+// here ages past the clock and turns the assertion below red for no reason.
+const task = await api.call('POST', '/tasks', { title: '线代作业', category: '数学', due: clock.body.today })
 const taskId = task.body.entry.id
 assert.equal(task.body.tasks[0].state, 'todo', 'a fresh task reads as 待办')
 assert.equal(task.body.tasks[0].overdue, false)

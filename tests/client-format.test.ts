@@ -19,6 +19,8 @@ import {
   timeField,
   weekEndKey,
 } from '../src/client/board/format.ts'
+import { dayReport } from '../src/client/board/report.ts'
+import type { ClockView, StateView } from '../src/client/types.ts'
 
 let passed = 0
 
@@ -86,6 +88,89 @@ check('a fractional count keeps one decimal and drops a trailing .0', () => {
   assert.equal(fractionText(5.25), '5.3', 'rounded to one decimal, not truncated')
   assert.equal(fractionText(4.0), '4')
   assert.equal(fractionText(0.5), '0.5')
+})
+
+console.log('the plain-text day report (what the copy button lands)')
+const reportClock: ClockView = {
+  today: '2026-09-20', nightTail: false, now: '2026-09-20T20:00:00',
+  config: { dayStartHour: 4, defaultVocabTarget: { new: 20, review: 60 }, defaultRunMinutes: 30 },
+}
+const reportState: StateView = {
+  day: {
+    date: '2026-09-20', isToday: true,
+    day: {
+      date: '2026-09-20',
+      washes: { times: ['2026-09-20T07:00:00', '2026-09-20T22:30:00'] },
+      shower: { at: '2026-09-20T22:40:00' },
+      meals: {
+        breakfast: { at: '2026-09-20T08:00:00', price: 12 },
+        lunch: { at: '2026-09-20T12:00:00', price: 24.5 },
+      },
+      vocab: {
+        target: { new: 20, review: 60 },
+        sessions: [{ id: 'v1', at: '2026-09-20T07:12:00', new: 5, review: 30, minutes: 45 }],
+      },
+      duolingo: [{ id: 'd1', at: '2026-09-20T09:00:00', minutes: 25 }],
+      rope: [{ id: 'r1', at: '2026-09-20T10:00:00', preset: 90, seconds: 60 }],
+      pullup: [],
+      equipment: [],
+      run: { at: '2026-09-20T18:00:00', minutes: 30, distanceKm: 5, avgHr: 156 },
+      washing: [],
+    },
+    target: { new: 20, review: 60 },
+    // 5 new + 30 reviews at a fifth = 11/20 → 55%.
+    vocab: {
+      doneNew: 5, doneReview: 30, targetNew: 20, targetReview: 60,
+      minutes: 45, ratio: 0.55, surplusNew: 0, surplusReview: 0, met: false,
+    },
+    cells: [],
+    progress: { done: 4.5, total: 9 },
+  },
+  stock: { pending: 4, updatedAt: '2026-09-19T12:00:00' },
+  media: [],
+  tasks: [
+    { id: 't1', title: '英语口语', category: '英听说 A', due: '2026-09-20', progress: { current: 2, total: 5 }, createdAt: '2026-09-18T10:00:00', state: 'doing', overdue: false },
+    { id: 't2', title: '高数作业', due: '2026-09-24', progress: { current: 0, total: 1 }, createdAt: '2026-09-19T10:00:00', state: 'todo', overdue: false },
+    { id: 't3', title: '交房租', due: '2026-09-15', progress: { current: 0 }, createdAt: '2026-09-10T10:00:00', state: 'todo', overdue: true },
+  ],
+}
+const reportText = dayReport(reportState, reportClock)
+check('the header names the day (or the night tail) and the completion figure', () => {
+  assert.ok(reportText.startsWith('习惯日报 9月20日 周日\n'), reportText.split('\n')[0])
+  assert.ok(reportText.includes('完成 4.5/9（50%）'), reportText.split('\n')[1])
+  const nightClock = { ...reportClock, nightTail: true }
+  assert.ok(dayReport(reportState, nightClock).includes('9月20日 周日夜'))
+})
+check('each group is one line, and only the groups with something to say', () => {
+  assert.ok(reportText.includes('洗漱 2/2 · 洗澡 ✓ · 待洗 4 件'))
+  assert.ok(reportText.includes('三餐 2/3（¥36.5）'))
+  assert.ok(reportText.includes('背单词 55%（新 5/20 · 复 30/60 · 45 分） · 多邻国 1 节 25 分'))
+  assert.ok(reportText.includes(`跑步 5km 30 分 6'00"/km ♥156`))
+  assert.ok(reportText.includes('跳绳 1 组（90×1）'))
+})
+check('tasks: the ones due that day are listed, the rest only as an overdue count', () => {
+  assert.ok(reportText.includes('任务：英语口语（英听说 A） 2/5；另有逾期 1'), reportText)
+  assert.ok(!reportText.includes('高数作业'), 'a task due later is not this day\'s line')
+})
+check('an empty day still reports its zeros, and drops the empty groups', () => {
+  const empty: StateView = {
+    ...reportState,
+    day: {
+      ...reportState.day,
+      day: null,
+      vocab: {
+        doneNew: 0, doneReview: 0, targetNew: 20, targetReview: 60,
+        minutes: 0, ratio: 0, surplusNew: 0, surplusReview: 0, met: false,
+      },
+      progress: { done: 0, total: 8 },
+    },
+    tasks: [],
+  }
+  const bare = dayReport(empty, reportClock)
+  assert.ok(bare.includes('完成 0/8（0%）'))
+  assert.ok(bare.includes('洗漱 0/2 · 洗澡 —'))
+  assert.ok(!bare.includes('跑步'), 'no training, no fitness line')
+  assert.ok(!bare.includes('任务：'), 'no tasks due, no task line')
 })
 
 console.log(`\n${passed} checks passed`)

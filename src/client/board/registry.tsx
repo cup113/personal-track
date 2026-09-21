@@ -296,7 +296,8 @@ function barTitle(entry: TaskEntry, dragging: boolean): string {
  *
  * Dragging writes once, on release. Every move would otherwise be an API call,
  * and the host answers each one with a whole slice; the local `drag` value is
- * the preview, and `progress.current` stays the accepted truth until then.
+ * the preview — the thumb and the reading beside the bar follow it live — and
+ * `progress.current` stays the accepted truth until then.
  */
 function TaskRow({ entry, today, busy, onPatch, onEdit, onRemove }: {
   readonly entry: TaskEntry
@@ -310,7 +311,15 @@ function TaskRow({ entry, today, busy, onPatch, onEdit, onRemove }: {
   const total = entry.progress.total
   const quantized = total !== undefined && total > 0
   const ratio = drag ?? ratioOf(entry)
+  // While dragging, the reading follows the thumb (what it will become), not
+  // `progress.current` (what the host last accepted).
+  const shown = drag === null ? entry.progress.current : barValue(entry, drag)
   const commit = (next: number): void => onPatch({ progress: { current: next } })
+  const barClass = [
+    'pt-task-bar',
+    quantized ? '' : 'pt-task-bar-plain',
+    drag === null ? '' : 'pt-task-bar-active',
+  ].filter(Boolean).join(' ')
 
   return (
     <div className={entry.overdue && entry.state !== 'done' ? 'pt-task pt-task-late' : 'pt-task'}>
@@ -329,13 +338,13 @@ function TaskRow({ entry, today, busy, onPatch, onEdit, onRemove }: {
       <div className="pt-task-foot">
         <button
           type="button"
-          className={quantized ? 'pt-task-bar' : 'pt-task-bar pt-task-bar-plain'}
+          className={barClass}
           disabled={busy}
           title={barTitle(entry, drag !== null)}
           aria-label={`${entry.title} 进度`}
           aria-valuemin={0}
           aria-valuemax={quantized ? total : 1}
-          aria-valuenow={barValue(entry, ratio)}
+          aria-valuenow={shown}
           onPointerDown={(event) => {
             if (!quantized) return
             const box = event.currentTarget
@@ -380,11 +389,17 @@ function TaskRow({ entry, today, busy, onPatch, onEdit, onRemove }: {
             className={entry.overdue && entry.state !== 'done' ? 'pt-task-fill pt-task-fill-late' : 'pt-task-fill'}
             style={{ width: `${Math.round(ratio * 100)}%` }}
           />
+          {quantized
+            ? <span className="pt-task-thumb" style={{ left: `${Math.round(ratio * 100)}%` }} />
+            : null}
         </button>
         {quantized
           ? (
-            <span className="pt-task-count" title="当前 / 目标量">
-              {fractionText(entry.progress.current)}/{fractionText(total)}
+            <span
+              className={drag === null ? 'pt-task-count' : 'pt-task-count pt-task-count-live'}
+              title="当前 / 目标量"
+            >
+              {fractionText(shown)}/{fractionText(total)}
             </span>
           )
           : null}

@@ -10,7 +10,7 @@
  * tiles grouped by area. Every group is always shown — the board is short
  * enough to read top to bottom, and a hidden group is a habit you forget.
  */
-import { useCallback, useEffect, useState, type JSX } from 'react'
+import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import {
   HabitApiError,
   type HabitClient,
@@ -27,6 +27,7 @@ import { DateNav } from './DateNav.tsx'
 import { EquipmentCard, PullupCard, RopeCard, RunTile } from './fitness.tsx'
 import { fractionText } from './format.ts'
 import { MediaTile, TaskTile } from './registry.tsx'
+import { dayReport } from './report.ts'
 import { DuolingoCard, VocabCard } from './study.tsx'
 import { GroupHeader, ProgressRing, Tile, TileHead } from './tile.tsx'
 
@@ -50,6 +51,8 @@ export function BoardBody({ client, openStats }: BoardBodyProps): JSX.Element {
   const [state, setState] = useState<StateView | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const copyTimer = useRef(0)
 
   const report = useCallback((cause: unknown) => {
     setError(cause instanceof HabitApiError
@@ -101,6 +104,10 @@ export function BoardBody({ client, openStats }: BoardBodyProps): JSX.Element {
     return () => window.removeEventListener('focus', onFocus)
   }, [date, loadClock, loadState])
 
+  // The copy confirmation is a flash, not a state: never let its timer outlive
+  // the tab.
+  useEffect(() => () => window.clearTimeout(copyTimer.current), [])
+
   /** Run one mutation and adopt the slice it answers with. */
   const act = useCallback(async (action: () => Promise<StateView>) => {
     setBusy(true)
@@ -142,6 +149,36 @@ export function BoardBody({ client, openStats }: BoardBodyProps): JSX.Element {
     await action()
     return await client.state(date)
   })
+
+  /** Show the copy confirmation for a moment, restarting the timer if due. */
+  const flashCopied = (): void => {
+    setCopied(true)
+    window.clearTimeout(copyTimer.current)
+    copyTimer.current = window.setTimeout(() => setCopied(false), 2000)
+  }
+
+  /** Copy the shown day as plain text, for pasting somewhere else. */
+  const copyReport = async (): Promise<void> => {
+    if (state === null) return
+    const text = dayReport(state, clock)
+    try {
+      await navigator.clipboard.writeText(text)
+      flashCopied()
+    } catch {
+      // The clipboard API wants a secure context and a grant; a hidden
+      // textarea still lands the copy where neither is available.
+      const area = document.createElement('textarea')
+      area.value = text
+      area.setAttribute('readonly', '')
+      area.style.position = 'fixed'
+      area.style.opacity = '0'
+      document.body.append(area)
+      area.select()
+      const landed = document.execCommand('copy')
+      area.remove()
+      if (landed) flashCopied()
+    }
+  }
 
   return (
     <div className="pt-board">
@@ -250,6 +287,19 @@ export function BoardBody({ client, openStats }: BoardBodyProps): JSX.Element {
             </div>
           </Tile>
         ) : null}
+      </div>
+
+      <div className="pt-board-foot">
+        <span className="pt-muted">
+          {copied ? '已复制，去粘贴即可' : '把正在看的这一天折成纯文本，方便贴出去'}
+        </span>
+        <span className="pt-grow" />
+        <button
+          type="button"
+          className="pt-ghost"
+          disabled={state === null}
+          onClick={() => void copyReport()}
+        >{copied ? '已复制 ✓' : '复制纯文本报告'}</button>
       </div>
     </div>
   )

@@ -260,24 +260,27 @@ const CSS = `
 }
 .pt-task-title { font-weight: 600; }
 .pt-task-due { font-variant-numeric: tabular-nums; white-space: nowrap; }
-.pt-task-foot { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.pt-task-foot { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .pt-task-ok { font-size: 11px; color: rgba(90,175,120,.95); flex: none; }
 /* The current/total reading: a bar's length only approximates it. */
 .pt-task-count {
   flex: none; font-size: 11px; opacity: .7;
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
+/* While a drag is open, the reading is a live figure, not a stored one. */
+.pt-task-count-live { opacity: 1; font-weight: 650; color: var(--pt-accent); }
 
 /*
  * The bar is the whole remaining width: it is the one thing on the line that
  * grows, and the wider it is the finer the drag. It is a button, so it takes
- * focus and arrow keys; the grab cursor and the raised track on hover are what
- * say it can be dragged.
+ * focus and arrow keys; the thumb on the fill's edge and the grab cursor are
+ * what say it can be dragged. Overflow stays visible so the thumb may stand
+ * proud of the track at either end.
  */
 .pt-task-bar {
-  appearance: none; flex: 1; min-width: 40px; height: 8px; padding: 0;
+  appearance: none; position: relative; flex: 1; min-width: 40px; height: 8px; padding: 0;
   border: 1px solid var(--pt-line); border-radius: 4px;
-  background: var(--pt-surface-2); overflow: hidden;
+  background: var(--pt-surface-2); overflow: visible;
   cursor: grab; touch-action: none;
   transition: border-color .12s ease, background .12s ease;
 }
@@ -297,6 +300,27 @@ const CSS = `
   background: linear-gradient(90deg, rgba(220,96,96,.8), rgba(238,132,118,.95));
 }
 .pt-task-late .pt-task-bar { border-color: rgba(220,96,96,.45); }
+
+/* The draggable handle, centred on the fill's leading edge. */
+.pt-task-thumb {
+  position: absolute; top: 50%; width: 12px; height: 12px; border-radius: 50%;
+  transform: translate(-50%, -50%);
+  border: 1.5px solid var(--pt-accent-line); background: var(--pt-accent-soft);
+  pointer-events: none;
+  transition: transform .12s ease, background .12s ease, border-color .12s ease;
+}
+.pt-task-bar:hover:not(:disabled) .pt-task-thumb,
+.pt-task-bar:focus-visible .pt-task-thumb { background: var(--pt-accent); }
+.pt-task-late .pt-task-thumb { border-color: rgba(220,96,96,.6); }
+/* Mid-drag: no tween on the fill (the thumb must track the pointer exactly)
+ * and the thumb grows to say it has the pointer. */
+.pt-task-bar-active .pt-task-fill { transition: none; }
+.pt-task-bar-active .pt-task-thumb {
+  background: var(--pt-accent); transform: translate(-50%, -50%) scale(1.15);
+}
+
+/* ---- the board's last row: the plain-text report ---------------------- */
+.pt-board-foot { display: flex; align-items: center; gap: 6px; padding: 0 2px; }
 
 /* ---- the statistics panel (main area) -------------------------------- */
 .pt-panel-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
