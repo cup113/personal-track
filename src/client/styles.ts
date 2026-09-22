@@ -327,19 +327,19 @@ const CSS = `
   transform: translate(-50%, -50%) scale(1.15);
 }
 
-/* ---- the archive: finished, past due, out of the way ------------------ */
+/* ---- the archive: settled business, out of the way -------------------- */
 /*
- * A done task whose deadline has passed is answered business; it folds into
- * this collapsed section so the live list carries only what still wants
- * attention. Display-only derivation — nothing is stored or moved.
+ * Finished items fold into this collapsed section so the live list carries
+ * only what still wants attention: for tasks, done and past due; for media,
+ * finished or abandoned. Display-only derivation — nothing is stored or moved.
  */
-.pt-task-archive { border-top: 1px dashed var(--pt-line); margin-top: 4px; padding-top: 3px; }
-.pt-task-archive summary {
+.pt-archive { border-top: 1px dashed var(--pt-line); margin-top: 4px; padding-top: 3px; }
+.pt-archive summary {
   cursor: pointer; font-size: 11px; opacity: .65; user-select: none;
   padding: 1px 0 3px;
 }
-.pt-task-archive summary:hover { opacity: 1; }
-.pt-task-archive .pt-task { opacity: .78; }
+.pt-archive summary:hover { opacity: 1; }
+.pt-archive .pt-task, .pt-archive .pt-list-row { opacity: .78; }
 
 /* ---- the board's last row: the plain-text report ---------------------- */
 .pt-board-foot { display: flex; align-items: center; gap: 6px; padding: 0 2px; }

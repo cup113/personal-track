@@ -114,13 +114,12 @@ export function DuolingoCard({ lessons, busy, onAdd, onPatch, onRemove }: Duolin
   return (
     <SessionTile
       label={`多邻国${lessons.length === 0 ? '' : ` · ${lessons.length} 节 ${total}分`}`}
-      title="课程"
+      title="学习记录"
       entries={lessons as readonly SessionEntry[]}
       fields={LESSON_FIELDS}
       summarize={entry => `${timeOf(String(entry.at ?? ''))} · ${Number(entry.minutes)} 分钟`}
       busy={busy}
       addLabel="加一节"
-      emptyLabel="今日无课"
       onAdd={onAdd}
       onPatch={onPatch}
       onRemove={onRemove}

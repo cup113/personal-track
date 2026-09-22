@@ -141,57 +141,83 @@ export interface MediaTileProps {
   readonly onRemove: (id: string) => void
 }
 
+/**
+ * A media entry whose watching is over: finished or abandoned. Both are
+ * answered business, so both fold out of the live list.
+ *
+ * Purely a display derivation — nothing is stored or moved, and the host knows
+ * nothing about it (docs/adr/0002-derived-state-not-stored.md).
+ */
+function isSettled(entry: MediaEntry): boolean {
+  return entry.status === 'done' || entry.status === 'dropped'
+}
+
 /** What has been watched and read: a log, written after the fact. */
 export function MediaTile({ media, busy, onAdd, onPatch, onRemove }: MediaTileProps): JSX.Element {
   const [mode, dispatch] = useEditor(media.map(entry => entry.id))
-  const active = media.filter(entry => entry.status === 'active').length
+  const live = media.filter(entry => !isSettled(entry))
+  const settled = media.filter(isSettled)
+  const active = live.length
+
+  /** One entry, as the open editor or as its row — the same in either list. */
+  const renderEntry = (entry: MediaEntry): JSX.Element => (isEditing(mode, entry.id)
+    ? (
+      <FieldForm
+        key={entry.id}
+        fields={MEDIA_FIELDS}
+        initial={{
+          kind: entry.kind,
+          title: entry.title,
+          status: entry.status,
+          rating: entry.rating,
+          notes: entry.notes,
+        }}
+        submitLabel="保存"
+        busy={busy}
+        onSubmit={(payload) => {
+          onPatch(entry.id, mediaPatch(payload, entry))
+          dispatch({ kind: 'close' })
+        }}
+        onCancel={() => dispatch({ kind: 'close' })}
+      />
+    )
+    : (
+      <div className="pt-list-row" key={entry.id}>
+        <span className="pt-list-text">
+          <span className={entry.status === 'done' ? 'pt-badge pt-badge-ok' : 'pt-badge'}>
+            {entry.kind === 'film' ? '影' : '书'}
+          </span>
+          {' '}
+          {entry.title}
+          {entry.rating === undefined ? null : <span className="pt-muted"> ★{entry.rating}</span>}
+          <span className="pt-muted"> · {mediaStatusLabel(entry.status)}</span>
+        </span>
+        <IconButton label="编辑" disabled={busy} onClick={() => dispatch({ kind: 'edit', id: entry.id })}>✎</IconButton>
+        <IconButton label="删除" disabled={busy} onClick={() => onRemove(entry.id)}>×</IconButton>
+      </div>
+    ))
 
   return (
     <Tile span={2}>
-      <TileHead title="影视 / 书籍" meta={media.length === 0 ? '空' : `在列 ${active} · 共 ${media.length}`}>
+      <TileHead title="影视 / 书籍" meta={media.length === 0 ? '空' : `在列 ${active}`}>
         <IconButton label="新增记录" disabled={busy} onClick={() => dispatch({ kind: 'open-add' })}>＋</IconButton>
       </TileHead>
 
       {media.length === 0 && mode.kind === 'idle'
         ? <span className="pt-muted">看完一部、读完一本，随时补记</span>
         : null}
+      {media.length > 0 && live.length === 0 && mode.kind === 'idle'
+        ? <span className="pt-muted">没有在看或在读的记录</span>
+        : null}
 
-      {media.map(entry => (isEditing(mode, entry.id)
-        ? (
-          <FieldForm
-            key={entry.id}
-            fields={MEDIA_FIELDS}
-            initial={{
-              kind: entry.kind,
-              title: entry.title,
-              status: entry.status,
-              rating: entry.rating,
-              notes: entry.notes,
-            }}
-            submitLabel="保存"
-            busy={busy}
-            onSubmit={(payload) => {
-              onPatch(entry.id, mediaPatch(payload, entry))
-              dispatch({ kind: 'close' })
-            }}
-            onCancel={() => dispatch({ kind: 'close' })}
-          />
-        )
-        : (
-          <div className="pt-list-row" key={entry.id}>
-            <span className="pt-list-text">
-              <span className={entry.status === 'done' ? 'pt-badge pt-badge-ok' : 'pt-badge'}>
-                {entry.kind === 'film' ? '影' : '书'}
-              </span>
-              {' '}
-              {entry.title}
-              {entry.rating === undefined ? null : <span className="pt-muted"> ★{entry.rating}</span>}
-              <span className="pt-muted"> · {mediaStatusLabel(entry.status)}</span>
-            </span>
-            <IconButton label="编辑" disabled={busy} onClick={() => dispatch({ kind: 'edit', id: entry.id })}>✎</IconButton>
-            <IconButton label="删除" disabled={busy} onClick={() => onRemove(entry.id)}>×</IconButton>
-          </div>
-        )))}
+      {live.map(renderEntry)}
+
+      {settled.length === 0 ? null : (
+        <details className="pt-archive">
+          <summary title="已完成或已放弃的记录">归档 {settled.length} 条</summary>
+          {settled.map(renderEntry)}
+        </details>
+      )}
 
       {isAdding(mode)
         ? (
@@ -495,7 +521,7 @@ export function TaskTile({ tasks, today, busy, onAdd, onPatch, onRemove }: TaskT
       {live.map(renderTask)}
 
       {archived.length === 0 ? null : (
-        <details className="pt-task-archive">
+        <details className="pt-archive">
           <summary title="过了截止日且已完成的任务">归档 {archived.length} 条</summary>
           {archived.map(renderTask)}
         </details>

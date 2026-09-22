@@ -287,9 +287,6 @@ export function BoardBody({ client, openStats }: BoardBodyProps): JSX.Element {
       </div>
 
       <div className="pt-board-foot">
-        <span className="pt-muted">
-          {copied ? '已复制，去粘贴即可' : '把正在看的这一天折成纯文本，方便贴出去'}
-        </span>
         <span className="pt-grow" />
         <button
           type="button"
