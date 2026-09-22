@@ -97,10 +97,18 @@ export function SessionList({
   )
 }
 
-/** The list as its own full-width tile. */
+/**
+ * The list as its own full-width tile.
+ *
+ * These habits carry no quantity target — a single stored entry is what
+ * satisfies the day — so the tile greens up as soon as the list is not empty.
+ * A session habit with a target of its own builds its `Tile` itself instead
+ * (see `VocabCard`), which is why there is no tone prop here.
+ */
 export function SessionTile({ label, title, ...list }: SessionListProps & { readonly label: string }): JSX.Element {
+  const tone = list.entries.length > 0 ? 'done' : 'idle'
   return (
-    <Tile span={2}>
+    <Tile span={2} tone={tone}>
       <TileHead title={label} meta={`${list.entries.length} 条`} />
       <SessionList title={title} {...list} />
     </Tile>

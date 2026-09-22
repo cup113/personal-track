@@ -83,12 +83,14 @@ export interface LaundryTileProps {
  * The laundry counter plus its wash action. `＋`/`−` adjust the gauge (piling
  * up clothes, fixing a miscount) and leave no history; only `洗完` records a
  * washing session, with the hour it happened.
+ *
+ * Nothing left to wash is this tile's own idea of done, so it greens at zero.
  */
 export function LaundryTile({ pending, busy, onDelta, onWash, onSet }: LaundryTileProps): JSX.Element {
   const [mode, setMode] = useState<'idle' | 'wash' | 'fix'>('idle')
 
   return (
-    <Tile span={2}>
+    <Tile span={2} tone={pending === 0 ? 'done' : 'idle'}>
       <TileHead title="洗衣" meta={`待洗 ${pending}`}>
         <IconButton label="加一件脏衣服" disabled={busy} onClick={() => onDelta(1)}>＋</IconButton>
         <IconButton label="减一件（修正）" disabled={busy || pending <= 0} onClick={() => onDelta(-1)}>−</IconButton>
