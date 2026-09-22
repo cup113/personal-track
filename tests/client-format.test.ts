@@ -14,6 +14,9 @@ import {
   daysBetweenKeys,
   dueLevelOf,
   fractionText,
+  mediaStatusLabel,
+  messageOf,
+  percentOf,
   shiftKey,
   TIME_FIELD,
   timeField,
@@ -88,6 +91,50 @@ check('a fractional count keeps one decimal and drops a trailing .0', () => {
   assert.equal(fractionText(5.25), '5.3', 'rounded to one decimal, not truncated')
   assert.equal(fractionText(4.0), '4')
   assert.equal(fractionText(0.5), '0.5')
+})
+
+console.log('percent (one owner for the board, the report and the stats panel)')
+check('a ratio becomes whole percent', () => {
+  assert.equal(percentOf(0), 0)
+  assert.equal(percentOf(1), 100)
+  assert.equal(percentOf(0.5), 50)
+  assert.equal(percentOf(0.55), 55)
+})
+check('rounding is to the nearest whole percent', () => {
+  assert.equal(percentOf(0.004), 0, 'below half a percent floors to zero')
+  assert.equal(percentOf(0.005), 1, 'and half a percent rounds up')
+  assert.equal(percentOf(0.994), 99)
+  assert.equal(percentOf(0.995), 100)
+})
+check('a ratio is clamped, so a bar can never overflow or invert', () => {
+  assert.equal(percentOf(-1), 0)
+  assert.equal(percentOf(1.5), 100)
+})
+check('an uncomputable ratio reads as zero rather than NaN', () => {
+  // The one case `report.ts` used to special-case by hand.
+  assert.equal(percentOf(Number.NaN), 0)
+  assert.equal(percentOf(Number.POSITIVE_INFINITY), 0, 'not a ratio, so not a percent')
+})
+
+console.log('media status labels')
+check('the three known statuses are translated', () => {
+  assert.equal(mediaStatusLabel('active'), '在列')
+  assert.equal(mediaStatusLabel('done'), '完成')
+  assert.equal(mediaStatusLabel('dropped'), '弃')
+})
+check('an unknown status falls back to itself rather than to blank', () => {
+  assert.equal(mediaStatusLabel('owned'), 'owned')
+})
+
+console.log('failure text')
+check('a host code is shown beside the message', () => {
+  const failure = Object.assign(new Error('洗漱每日至多两次'), { code: 'habit/check-limit' })
+  assert.equal(messageOf(failure), '洗漱每日至多两次（habit/check-limit）')
+})
+check('a plain error and a non-error both degrade sensibly', () => {
+  assert.equal(messageOf(new Error('boom')), 'boom')
+  assert.equal(messageOf('just a string'), 'just a string')
+  assert.equal(messageOf(undefined), 'undefined')
 })
 
 console.log('the plain-text day report (what the copy button lands)')

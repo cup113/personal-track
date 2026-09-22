@@ -9,7 +9,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-storage-domain'
 import { API_PREFIX, createApiHandler } from './api.ts'
 import { createBackup } from './backup.ts'
-import { Config, boundaryOf } from './config.ts'
+import { Config, boundaryOf, clockOf } from './config.ts'
 import { habitDomainSpec } from './domain.ts'
 import { createHabitStore } from './store.ts'
 
@@ -31,7 +31,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     backup: createBackup(domain),
     boundary: boundaryOf(config),
     config,
-    now: () => new Date(),
+    // The one time seam: production gets the host's clock, and a verification
+    // can pass its own through `config.now` instead of racing the wall clock.
+    now: clockOf(config),
   })
 
   ctx.effect(() => ctx.webServer.register({

@@ -7,7 +7,8 @@
  * the editing behaviour is identical everywhere. The clock-time field is added
  * here, which is why every session can be retimed without extra code.
  */
-import { useState, type JSX } from 'react'
+import { useReducer, type JSX } from 'react'
+import { IDLE, editor, isAdding, isEditing, type EditorAction, type EditorState } from './editor-state.ts'
 import { FieldForm, type FieldSpec } from './fields.tsx'
 import { timeField, timeValueOf } from './format.ts'
 import { IconButton, Tile, TileHead } from './tile.tsx'
@@ -31,16 +32,14 @@ export interface SessionListProps {
   readonly onRemove: (id: string) => void
 }
 
-type Mode =
-  | { readonly kind: 'idle' }
-  | { readonly kind: 'add' }
-  | { readonly kind: 'edit'; readonly id: string }
-
 /** The list without a tile, so it can live inside another tile. */
 export function SessionList({
   title, entries, fields, summarize, busy, addLabel, emptyLabel, onAdd, onPatch, onRemove,
 }: SessionListProps): JSX.Element {
-  const [mode, setMode] = useState<Mode>({ kind: 'idle' })
+  const [mode, dispatch] = useReducer(
+    (state: EditorState, action: EditorAction) => editor(state, action, entries.map(entry => entry.id)),
+    IDLE,
+  )
   // Built per render so the add form opens on the current clock time; an entry
   // being edited overrides it through `initial` below.
   const allFields: readonly FieldSpec[] = [timeField(), ...fields]
@@ -50,10 +49,14 @@ export function SessionList({
       <div className="pt-sub-head">
         <span className="pt-sub-title">{title}</span>
         {entries.length === 0 ? <span className="pt-muted">{emptyLabel ?? '无记录'}</span> : null}
-        <IconButton label={addLabel ?? '添加'} disabled={busy} onClick={() => setMode({ kind: 'add' })}>＋</IconButton>
+        <IconButton
+          label={addLabel ?? '添加'}
+          disabled={busy}
+          onClick={() => dispatch({ kind: 'open-add' })}
+        >＋</IconButton>
       </div>
 
-      {entries.map(entry => (mode.kind === 'edit' && mode.id === entry.id
+      {entries.map(entry => (isEditing(mode, entry.id)
         ? (
           <FieldForm
             key={entry.id}
@@ -63,20 +66,20 @@ export function SessionList({
             busy={busy}
             onSubmit={(payload) => {
               onPatch(entry.id, payload)
-              setMode({ kind: 'idle' })
+              dispatch({ kind: 'close' })
             }}
-            onCancel={() => setMode({ kind: 'idle' })}
+            onCancel={() => dispatch({ kind: 'close' })}
           />
         )
         : (
           <div className="pt-list-row" key={entry.id}>
             <span className="pt-list-text">{summarize(entry)}</span>
-            <IconButton label="编辑" disabled={busy} onClick={() => setMode({ kind: 'edit', id: entry.id })}>✎</IconButton>
+            <IconButton label="编辑" disabled={busy} onClick={() => dispatch({ kind: 'edit', id: entry.id })}>✎</IconButton>
             <IconButton label="删除" disabled={busy} onClick={() => onRemove(entry.id)}>×</IconButton>
           </div>
         )))}
 
-      {mode.kind === 'add'
+      {isAdding(mode)
         ? (
           <FieldForm
             fields={allFields}
@@ -84,9 +87,9 @@ export function SessionList({
             busy={busy}
             onSubmit={(payload) => {
               onAdd(payload)
-              setMode({ kind: 'idle' })
+              dispatch({ kind: 'close' })
             }}
-            onCancel={() => setMode({ kind: 'idle' })}
+            onCancel={() => dispatch({ kind: 'close' })}
           />
         )
         : null}

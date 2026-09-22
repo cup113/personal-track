@@ -25,6 +25,16 @@ export interface Config {
   defaultVocabTarget: VocabTarget
   /** Duration a running entry starts with in the UI. */
   defaultRunMinutes: number
+  /**
+   * The clock records are stamped with. Omit for the host's own.
+   *
+   * This is the plugin's one time seam. Every instant the API writes — a check,
+   * a session, a completion — goes through it, so a test or the real-stack
+   * verification can pin "now" and stop asserting against the wall clock. It is
+   * deliberately a config field rather than a hidden module variable: the same
+   * path production takes is the one that gets exercised.
+   */
+  now?: () => Date
 }
 
 /** Validated configuration schema. */
@@ -36,7 +46,17 @@ export const Config: Schema<Config> = Schema.object({
     review: Schema.number().min(0).default(60),
   }).default({ new: 20, review: 60 }),
   defaultRunMinutes: Schema.number().min(1).default(30),
+  // The default must BE a clock, not a factory that returns one: schemastery
+  // resolves a function default by calling it once, so `.default(() => () => new Date())`
+  // would store `() => new Date` — a function whose result is a function, which
+  // throws the moment anything stamps an instant.
+  now: Schema.function().default(() => new Date()),
 })
+
+/** The clock the plugin stamps with, from a validated config. */
+export function clockOf(config: Config): () => Date {
+  return config.now ?? (() => new Date())
+}
 
 /** The part of the configuration that habit-day arithmetic needs. */
 export interface DayBoundary {

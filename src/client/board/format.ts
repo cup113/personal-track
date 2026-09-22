@@ -131,6 +131,38 @@ export function fractionText(value: number): string {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
 }
 
+/**
+ * A ratio as whole percent, clamped to `[0, 100]` and never `NaN`.
+ *
+ * The decimal sibling of {@link fractionText}, and the one owner of the rule:
+ * the board, the copied plain-text report and the statistics panel all show the
+ * same day's figure, so they must not each round it their own way. A ratio that
+ * cannot be computed (an empty range, a division by zero) reads as 0, which is
+ * also what `report.ts` used to special-case by hand.
+ */
+export function percentOf(ratio: number): number {
+  if (!Number.isFinite(ratio)) return 0
+  return Math.round(Math.max(0, Math.min(1, ratio)) * 100)
+}
+
+/** Display text for a media status. */
+export function mediaStatusLabel(status: string): string {
+  return { active: '在列', done: '完成', dropped: '弃' }[status] ?? status
+}
+
+/**
+ * Human text for whatever a handler threw.
+ *
+ * One translation for every surface that reports a failure, so a host code is
+ * always shown the same way instead of by whichever component caught it.
+ */
+export function messageOf(cause: unknown): string {
+  if (cause instanceof Error && 'code' in cause && typeof cause.code === 'string') {
+    return `${cause.message}（${cause.code}）`
+  }
+  return cause instanceof Error ? cause.message : String(cause)
+}
+
 /** Pace in minutes per kilometre; undefined when it cannot be computed. */
 export function paceOf(minutes: number, distanceKm: number): number | undefined {
   if (!(minutes > 0) || !(distanceKm > 0)) return undefined

@@ -6,6 +6,12 @@
  * plugin's own HTTP API and inspects what actually landed on disk. A second
  * mount over the same root proves the data survives a restart.
  *
+ * What this file owns is *transport and persistence*: a real port, a real JSON
+ * document, a real restart, a real backup round-trip across two roots. The
+ * rules themselves — every derivation, every failure shape, every mutation —
+ * are asserted in `tests/`, in-process and without a medium, so this file does
+ * not repeat them.
+ *
  * The storage root lives inside the workspace (`.tmp/`) because the file
  * sandbox grants no writes to the platform temp directory.
  */
@@ -22,6 +28,21 @@ import * as plugin from '../lib/index.js'
 const ROOT = join('.tmp', 'verify-host')
 const DATE = '2026-09-16'
 
+/**
+ * The instant every record is stamped with.
+ *
+ * Built from local components, so the habit day is `DATE` on any machine: the
+ * plugin derives the day in the host's zone, and a UTC literal would land on
+ * the previous or next day west or east of it. Pinning the clock is what makes
+ * "a task due today" and "completed inside the range" deterministic instead of
+ * something this file has to ask the wall clock about.
+ */
+const NOW = new Date(2026, 8, 16, 12, 0, 0)
+
+/** An instant's clock time in the local zone (an ISO prefix is UTC). */
+const clockOf = (instant) =>
+  new Date(instant).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+
 await rm(ROOT, { recursive: true, force: true })
 await mkdir(ROOT, { recursive: true })
 
@@ -32,7 +53,10 @@ async function mount(root = ROOT) {
   await ctx.plugin(storageJson, { root })
   await ctx.plugin(storageDomain, { backend: 'json' })
   const server = await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 })
-  const app = await ctx.plugin(plugin, { dayStartHour: 4 })
+  const app = await ctx.plugin(plugin, {
+    dayStartHour: 4,
+    now: () => new Date(NOW.getTime()),
+  })
 
   const deadline = Date.now() + 5000
   while (!ctx.webServer?.port) {
@@ -130,38 +154,22 @@ assert.equal(removed.body.day.progress.done, 4)
 console.log('sessions ✓  (append / patch / delete, cells follow the sessions)')
 
 // --- editing recorded times --------------------------------------------------
-// A clock time must be resolved inside the *habit* day, so the host decides the
-// calendar date: 01:30 on habit day 2026-09-16 is 2026-09-17T01:30 locally.
-const clockOf = iso => new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
-const localDateOf = iso => new Date(iso).toLocaleDateString('en-CA')
-
+// A `HH:mm` retime over real HTTP: the host, not the browser, decides which
+// calendar date a clock time lands on. The full night-tail and per-verb matrix
+// lives in tests/api-handle.test.ts; what matters here is that a retime travels
+// through the real transport and comes back changed.
 const retimedShower = await api.call('PATCH', '/check', { date: DATE, habit: 'shower', time: '07:05' })
 assert.equal(retimedShower.status, 200)
 assert.equal(clockOf(retimedShower.body.day.day.shower.at), '07:05', 'a shower time can be corrected')
-
-const nightWash = await api.call('PATCH', '/check', { date: DATE, habit: 'wash', index: 0, time: '01:30' })
-assert.equal(clockOf(nightWash.body.day.day.washes.times[0]), '01:30')
-assert.equal(localDateOf(nightWash.body.day.day.washes.times[0]), '2026-09-17',
-  'a night-tail time lands on the next calendar date …')
-assert.equal(nightWash.body.day.cells.find(cell => cell.id === 'wash1').value, 1,
-  '… while still counting inside the habit day')
-
-const retimedMeal = await api.call('PUT', '/meal', { date: DATE, slot: 'lunch', time: '12:20', price: 12.5 })
-assert.equal(clockOf(retimedMeal.body.day.day.meals.lunch.at), '12:20', 'a meal time can be corrected')
 
 const retimedLesson = await api.call('PATCH', '/session', {
   date: DATE, kind: 'duolingo', id: lessonId, patch: { time: '21:15' },
 })
 assert.equal(clockOf(retimedLesson.body.day.day.duolingo[0].at), '21:15', 'a session time can be corrected')
 
-const addedAtTime = await api.call('POST', '/check', { date: DATE, habit: 'wash', time: '22:40' })
-assert.equal(clockOf(addedAtTime.body.day.day.washes.times[1]), '22:40', 'a check can be backfilled at a known hour')
-
 const badTime = await api.call('PATCH', '/check', { date: DATE, habit: 'wash', index: 0, time: '25:00' })
 assert.equal(badTime.status, 400, 'an impossible clock time is refused')
-const noTime = await api.call('PATCH', '/check', { date: DATE, habit: 'wash', index: 0 })
-assert.equal(noTime.status, 400, 'a retime without a time is refused')
-console.log('time editing ✓  (checks, meals and sessions retimed; night tail stays in the day)')
+console.log('time editing ✓  (a retime travels over HTTP; an impossible time is refused)')
 
 // --- running (single-valued, default duration) -------------------------------
 const run = await api.call('PUT', '/run', { date: DATE, distanceKm: 5, avgHr: 150 })
@@ -210,10 +218,10 @@ assert.equal(clearedRun.body.day.day.run, null, 'the running entry can be cleare
 console.log('running edit ✓  (explicit duration, then cleared)')
 
 // --- tasks (derived state) and media (hard delete) ---------------------------
-// The due date is the host's own "today": a task due today is never overdue on
-// the day it is created, whatever day the script happens to run. A fixed date
-// here ages past the clock and turns the assertion below red for no reason.
-const task = await api.call('POST', '/tasks', { title: '线代作业', category: '数学', due: clock.body.today })
+// With the clock pinned, "today" is the same day this file keeps writing to, so
+// a task due today is never overdue on the day it is created.
+assert.equal(clock.body.today, DATE, 'the pinned clock and the working date agree')
+const task = await api.call('POST', '/tasks', { title: '线代作业', category: '数学', due: DATE })
 const taskId = task.body.entry.id
 assert.equal(task.body.tasks[0].state, 'todo', 'a fresh task reads as 待办')
 assert.equal(task.body.tasks[0].overdue, false)
@@ -242,7 +250,7 @@ const late = await api.call('POST', '/tasks', { title: '补交作业', due: '202
 const lateId = late.body.entry.id
 assert.equal(late.body.tasks.find(entry => entry.id === lateId).overdue, true, 'past due and unfinished')
 await api.call('PATCH', '/tasks', { id: lateId, patch: { progress: { current: 1 } } })
-const lateList = await api.call('GET', '/tasks')
+const lateList = await api.call('GET', `/state?date=${DATE}`)
 assert.equal(lateList.body.tasks.find(entry => entry.id === lateId).overdue, false, 'finishing clears overdue')
 
 const book = await api.call('POST', '/media', { kind: 'book', title: '设计数据密集型应用' })
@@ -259,6 +267,8 @@ assert.equal(dropped.body.media.length, 0)
 console.log('tasks + media ✓  (derived state, completion instant, null clears, hard delete)')
 
 // --- a task due today is a cell in today's bar --------------------------------
+// The day stands at 4 complete cells (one wash, a shower, lunch, duolingo); the
+// task adds a fifth denominator without moving the numerator yet.
 const dated = await api.call('POST', '/tasks', { title: '今日作业', due: DATE })
 const datedId = dated.body.entry.id
 const withCell = (await api.call('GET', `/state?date=${DATE}`)).body
@@ -266,12 +276,12 @@ assert.equal(withCell.day.progress.total, 9, 'a task due that day adds a cell to
 assert.equal(withCell.day.cells.at(-1).id, `task:${datedId}`)
 assert.equal(withCell.day.cells.at(-1).label, '今日作业', 'the cell carries the task title')
 assert.equal(withCell.day.cells.at(-1).value, 0, 'and starts empty')
-assert.equal(withCell.day.progress.done, 5, 'an untouched task moves nothing yet')
+assert.equal(withCell.day.progress.done, 4, 'an untouched task moves nothing yet')
 
 await api.call('PATCH', '/tasks', { id: datedId, patch: { progress: { current: 1, total: 4 } } })
 const quarter = (await api.call('GET', `/state?date=${DATE}`)).body
 assert.equal(quarter.day.cells.at(-1).value, 0.25, 'progress fills the cell fractionally')
-assert.equal(quarter.day.progress.done, 5.3, 'a quarter of a cell reads as one decimal')
+assert.equal(quarter.day.progress.done, 4.3, 'a quarter of a cell reads as one decimal')
 // A different day is untouched by it, because only the deadline links them.
 const other = (await api.call('GET', '/state?date=2026-09-19')).body
 assert.equal(other.day.progress.total, 8, 'the cell belongs to the due date alone')
@@ -279,55 +289,31 @@ assert.equal(other.day.progress.total, 8, 'the cell belongs to the due date alon
 await api.call('DELETE', `/tasks?id=${datedId}`)
 const dropped2 = (await api.call('GET', `/state?date=${DATE}`)).body
 assert.equal(dropped2.day.progress.total, 8, 'deleting the task takes its cell back')
-assert.equal(dropped2.day.progress.done, 5)
+assert.equal(dropped2.day.progress.done, 4)
 console.log('due-today cells ✓  (one cell per due task, fractional value, gone with the task)')
 
 // --- range statistics --------------------------------------------------------
-// Day-scoped figures are deterministic over the recorded day alone, so the
-// streak (which walks back from the range end) is asserted there.
+// `buildStats` itself is covered exhaustively in tests/stats.test.ts. What this
+// file checks is that the aggregate travels over real HTTP against real stored
+// records: one request, the whole panel, one day of data.
 const dayStats = (await api.call('GET', `/stats?from=${DATE}&to=${DATE}`)).body
 assert.equal(dayStats.days.length, 1)
-assert.equal(dayStats.days[0].done, 5, 'wash ×2, shower, lunch, duolingo')
+assert.equal(dayStats.days[0].done, 4, 'one wash, shower, lunch, duolingo')
 assert.equal(dayStats.days[0].stored, true)
-assert.equal(dayStats.perfectDays, 0)
-const habitOf = id => dayStats.habits.find(habit => habit.id === id)
-assert.equal(habitOf('wash').met, 1, 'two washes satisfy the washing-up habit')
-assert.equal(habitOf('breakfast').met, 0)
-assert.equal(habitOf('vocab').met, 0, 'the vocabulary session was deleted')
-assert.equal(habitOf('duolingo').met, 1)
-assert.equal(habitOf('wash').streak, 1, 'the streak walks back from the range end')
-assert.equal(habitOf('breakfast').streak, 0)
-assert.deepEqual(habitOf('wash').perDay, [true], 'the heat matrix aligns with the day list')
-assert.deepEqual(habitOf('breakfast').perDay, [false])
-assert.equal(dayStats.vocab.daysMet, 0)
+assert.equal(dayStats.vocab.daysMet, 0, 'the vocabulary session was deleted')
 assert.equal(dayStats.duolingo.lessons, 1)
-assert.equal(dayStats.duolingo.minutes, 12)
 assert.equal(dayStats.rope.sets, 2)
-assert.equal(dayStats.rope.sets90, 1)
-assert.equal(dayStats.rope.sets180, 1)
-assert.equal(dayStats.rope.seconds, 140)
 assert.equal(dayStats.pullup.sets, 1)
-assert.equal(dayStats.pullup.seconds, 32)
 assert.equal(dayStats.equipment.reps, 30)
-assert.equal(dayStats.equipment.byName[0].name, '划船机')
-assert.equal(dayStats.washing.count, 1)
 assert.equal(dayStats.washing.pieces, 3)
 assert.equal(dayStats.meals.spend, 12.5)
-assert.equal(dayStats.meals.breakfast.days, 0, 'the meal projection carries breakfast alone')
-assert.equal(dayStats.meals.breakfast.ratio, 0)
 assert.equal(dayStats.runs.count, 0, 'the running entry was cleared')
-assert.deepEqual(dayStats.runs.points, [])
 
-// Completions are stamped with the real clock, so ask for a range that reaches
-// today before asserting on them.
-const clockToday = (await api.call('GET', '/clock')).body.today
-const rangeFrom = clockToday > DATE ? DATE : clockToday
-const stats = (await api.call('GET', `/stats?from=${rangeFrom}&to=${clockToday}`)).body
+// The clock is pinned, so completions land inside this same range with no
+// conditional range widening.
+const stats = (await api.call('GET', `/stats?from=${DATE}&to=${DATE}`)).body
 assert.equal(stats.tasks.done, 1, 'one task was completed inside the range')
 assert.equal(stats.tasks.doneLate, 1, 'and it was already overdue when finished')
-assert.equal(stats.tasks.open, 1)
-assert.equal(stats.tasks.doing, 1)
-assert.equal(stats.tasks.overdue, 0)
 assert.equal(stats.media.films + stats.media.books, 0, 'the book was hard-deleted')
 
 const reversed = await api.call('GET', `/stats?from=${DATE}&to=2020-01-01`)
@@ -335,7 +321,7 @@ assert.equal(reversed.status, 400, 'a reversed range is refused')
 const tooLong = await api.call('GET', `/stats?from=2000-01-01&to=${DATE}`)
 assert.equal(tooLong.status, 400)
 assert.equal(tooLong.body.error.code, 'habit/range-too-large')
-console.log('statistics ✓  (day cells, habits with streaks, training sums, spend, registries)')
+console.log('statistics ✓  (the whole panel over HTTP, and its range guards)')
 
 // --- failure shapes ----------------------------------------------------------
 const unknown = await api.call('GET', '/nope')
@@ -371,8 +357,8 @@ console.log(`on disk ✓  (habit/days/${DATE}.json is one readable versioned rec
 await api.stop()
 const restarted = await mount()
 const reloaded = await restarted.call('GET', `/state?date=${DATE}`)
-assert.equal(reloaded.body.day.day.washes.times.length, 2, 'checks survive a restart')
-assert.equal(clockOf(reloaded.body.day.day.washes.times[0]), '01:30', 'including an edited night-tail time')
+assert.equal(reloaded.body.day.day.washes.times.length, 1, 'checks survive a restart')
+assert.equal(clockOf(reloaded.body.day.day.washes.times[0]), '12:00', 'and the pinned instant they were stamped with')
 assert.deepEqual(reloaded.body.day.target, { new: 10, review: 5 })
 assert.equal(reloaded.body.stock.pending, 2, 'the laundry stock survives a restart')
 assert.equal(reloaded.body.tasks.length, 2, 'tasks survive a restart')
@@ -412,8 +398,8 @@ assert.equal(applied.body.report.days, 1)
 assert.equal(applied.body.report.removed, 0, 'an empty root had nothing to replace')
 assert.equal(applied.body.stock.pending, 2, 'the imported stock is live')
 const restoredDay = (await restored.call('GET', `/state?date=${DATE}`)).body
-assert.equal(restoredDay.day.day.washes.times.length, 2)
-assert.equal(restoredDay.day.progress.done, 5, 'every cell is recomputed from the records')
+assert.equal(restoredDay.day.day.washes.times.length, 1)
+assert.equal(restoredDay.day.progress.done, 4, 'every cell is recomputed from the records')
 assert.equal(restoredDay.day.vocab.ratio, 0, 'progress is recomputed, not read from the file')
 assert.deepEqual(restoredDay.day.target, { new: 10, review: 5 }, 'the target snapshot survives')
 assert.equal(restoredDay.tasks.find(task => task.id === lateId)?.state, 'done', 'derived task state comes back')
@@ -429,7 +415,7 @@ assert.equal(restoredStats.meals.spend, 16, 'restored lunch plus the new breakfa
 await restored.call('POST', '/tasks', { title: '临时任务' })
 const pruned = await restored.call('POST', '/backup', { mode: 'replace', backup })
 assert.equal(pruned.body.report.removed, 1, 'replace cleared the task the file omits')
-assert.equal((await restored.call('GET', '/tasks')).body.tasks.length, 2)
+assert.equal((await restored.call('GET', `/state?date=${DATE}`)).body.tasks.length, 2)
 const merged = await restored.call('POST', '/backup', { mode: 'merge', backup: { ...backup, counters: {} } })
 assert.equal(merged.body.report.removed, 0, 'merge drops nothing')
 assert.equal(merged.body.stock.pending, 2, 'and leaves a counter the file omits alone')
@@ -444,7 +430,7 @@ const corrupted = await restored.call('POST', '/backup', {
 })
 assert.equal(corrupted.status, 400, 'one bad record fails the whole file')
 assert.equal(corrupted.body.error.code, 'habit/bad-backup')
-assert.equal((await restored.call('GET', '/tasks')).body.tasks.length, 2, 'a refused import wrote nothing')
+assert.equal((await restored.call('GET', `/state?date=${DATE}`)).body.tasks.length, 2, 'a refused import wrote nothing')
 const badVersion = await restored.call('POST', '/backup', { mode: 'merge', backup: { ...backup, version: 99 } })
 assert.equal(badVersion.status, 400)
 assert.match(badVersion.body.error.message, /版本/)

@@ -12,7 +12,6 @@
  */
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import {
-  HabitApiError,
   type HabitClient,
   type MediaInput,
   type MediaPatch,
@@ -25,7 +24,7 @@ import { CheckTile, LaundryTile, MealBoard } from './cards.tsx'
 import { Chip } from './Chip.tsx'
 import { DateNav } from './DateNav.tsx'
 import { EquipmentCard, PullupCard, RopeCard, RunTile } from './fitness.tsx'
-import { fractionText } from './format.ts'
+import { fractionText, messageOf } from './format.ts'
 import { MediaTile, TaskTile } from './registry.tsx'
 import { dayReport } from './report.ts'
 import { DuolingoCard, VocabCard } from './study.tsx'
@@ -55,9 +54,7 @@ export function BoardBody({ client, openStats }: BoardBodyProps): JSX.Element {
   const copyTimer = useRef(0)
 
   const report = useCallback((cause: unknown) => {
-    setError(cause instanceof HabitApiError
-      ? `${cause.message}（${cause.code}）`
-      : cause instanceof Error ? cause.message : String(cause))
+    setError(messageOf(cause))
   }, [])
 
   const loadState = useCallback(async (target: string) => {

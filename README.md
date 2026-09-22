@@ -104,9 +104,21 @@ pnpm install
 pnpm build        # 产出 lib/index.js（ESM）与 lib/client.js（浏览器闭包工厂）
 pnpm watch        # 只重建产物；客户端 bundle 改动会被宿主轮询到并热重载
 pnpm typecheck    # 三个独立程序（宿主 / 浏览器 / 测试）
-pnpm test         # 数据层断言 + 客户端纯函数断言（习惯日算法、派生值、周末/初值）
-pnpm verify       # 客户端 facade + 宿主真实栈端到端
+pnpm test         # 逐文件跑 tests/*.test.ts，任一失败即整体失败
+pnpm verify       # 先构建，再跑客户端 facade + 宿主真实栈端到端
 ```
+
+**测试分两层，理解这个划分是读懂这套测试的关键。**
+
+- `tests/` 是**规则**层：全部在进程内跑，不起端口、不落盘。`tests/support.ts` 提供一个内存
+  `Domain`（`MemoryDomain`，六个方法的 `Map` 实现）和一个不存在的 HTTP 请求/响应替身，
+  于是 `store.ts`、`stats.ts`、`backup.ts`、宿主路由都能被直接驱动。
+- `scripts/verify-*.mjs` 是**接线与持久化**层：真 storage hub、真 JSON 后端、真端口、真重启、
+  真备份往返。规则类断言不在那里重复。
+
+`ApiDeps.now` 与 `Config.now` 是同一条时间缝线：宿主默认用本机时钟，测试与 `verify-host.mjs`
+传一个固定时刻，因此「今天到期的任务」「在区间内完成」这类断言不再依赖运行时刻。
+若某条规则只能通过跑完整栈才能验证，那说明它缺少一条缝线，而不是该多写一条端到端断言。
 
 **宿主代码改动必须重启 `dsh`**（Node 的 ESM 缓存不因 patch 重载失效）；**客户端 bundle 改动是热重载**。
 若客户端比宿主新，看板会直接提示「插件宿主半身未更新：请重启 dsh --profile web」。
@@ -146,13 +158,21 @@ pnpm verify       # 客户端 facade + 宿主真实栈端到端
 ## 结构
 
 ```
-src/host/    index.ts（装配）· config.ts · daykey.ts（习惯日算法）
+src/shared/  route.ts（/habit/api 的唯一路由声明：两半身共用 method + path）
+src/host/    index.ts（装配）· config.ts（含时间缝线 now）
+             api.ts（传输：读 body、查表、映射失败形状）
+             routes.ts（每个路由一个 handler，返回响应体）
+             api-error.ts（统一的失败词汇）· daykey.ts（习惯日算法）
              domain.ts（zod + 域声明）· derive.ts（派生规则）· store.ts（域访问）
-             backup.ts（事实文件的读写与校验）· api.ts（/habit/api）· stats.ts（范围聚合）
-src/client/  index.tsx（注册面）· api.ts（命令面）· types.ts（线上契约）
+             backup.ts（事实文件的读写与校验）· stats.ts（范围聚合）
+src/client/  index.tsx（注册面）· api.ts（命令面，base/fetch 可注入）· types.ts（线上契约）
              styles.ts（注入式样式表）· board/（tile 原语 + 看板卡片 + 统计面板 + 数据卡片）
-scripts/     build.mjs（esbuild CLI 双产物）· verify-client.mjs · verify-host.mjs
-tests/       data-layer.test.ts（宿主）· client-format.test.ts（客户端纯函数）
+             board/editor-state.ts（编辑器与导入状态机，纯函数）
+scripts/     build.mjs（esbuild CLI 双产物）· run-tests.mjs（逐文件跑测试）
+             verify-client.mjs · verify-host.mjs（真实栈：接线与持久化）
+tests/       support.ts（内存 Domain + 无端口 HTTP 驱动）· data-layer.test.ts（习惯日与派生值）
+             store.test.ts · stats.test.ts · backup.test.ts · api-handle.test.ts
+             client-format.test.ts · client-api.test.ts · editor-state.test.ts
 docs/adr/    0001 树外传输 · 0002 状态派生不落库
 ```
 

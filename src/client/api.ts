@@ -5,6 +5,7 @@
  * to re-read after a write. Failures arrive as `HabitApiError`, carrying the
  * host's own code so the UI can say something specific.
  */
+import { API_PREFIX, routes, urlOf, type RouteName } from '../shared/route.ts'
 import type {
   BackupBundle,
   ClockView,
@@ -16,18 +17,25 @@ import type {
   TaskEntry,
 } from './types.ts'
 
-/** The API prefix this plugin owns on the GUI host. */
-const BASE = '/habit/api'
+/** The route prefix this plugin owns on the GUI host. */
+const BASE = API_PREFIX
 
-/** One API failure as the host reported it. */
+/**
+ * One API failure as the host reported it.
+ *
+ * Fields are assigned explicitly, not as constructor parameter properties:
+ * that construct is the one piece of TypeScript syntax Node's native type
+ * stripping refuses, and this module is imported by tests that run that way.
+ */
 export class HabitApiError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    message: string,
-  ) {
+  readonly status: number
+  readonly code: string
+
+  constructor(status: number, code: string, message: string) {
     super(message)
     this.name = 'HabitApiError'
+    this.status = status
+    this.code = code
   }
 }
 
@@ -148,48 +156,56 @@ export interface TaskResult {
   readonly entry?: TaskEntry
 }
 
-/** Build a query string, dropping absent values. */
-function query(params: Record<string, string | number | undefined>): string {
-  const search = new URLSearchParams()
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined) search.set(key, String(value))
-  }
-  const text = search.toString()
-  return text === '' ? '' : `?${text}`
-}
-
-/** A JSON request body. */
-function body(method: string, payload: unknown): RequestInit {
+/** A JSON request body, with the verb taken from the route table. */
+function body(name: RouteName, payload: unknown): RequestInit {
   return {
-    method,
+    method: routes[name].method,
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(payload),
   }
 }
 
-/** Perform one call, turning a failure payload into a `HabitApiError`. */
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  let response: Response
-  try {
-    response = await fetch(`${BASE}${path}`, init)
-  } catch (cause) {
-    throw new HabitApiError(0, 'habit/unreachable', `无法连接插件服务：${String(cause)}`)
-  }
-  const payload = await response.json().catch(() => null) as
-    | { error?: { code?: string; message?: string } }
-    | null
-  if (!response.ok) {
-    throw new HabitApiError(
-      response.status,
-      payload?.error?.code ?? 'habit/unknown',
-      payload?.error?.message ?? `HTTP ${response.status}`,
-    )
-  }
-  return payload as T
+/** How the client reaches the host: injectable so a test can drive it. */
+export interface HabitClientOptions {
+  /** Prefix the API is mounted under. */
+  readonly base?: string
+  /** The fetch implementation; defaults to the platform's. */
+  readonly doFetch?: typeof fetch
 }
 
-/** Create the command surface handed to the board through slot injection. */
-export function createHabitClient(): HabitClient {
+/**
+ * Create the command surface handed to the board through slot injection.
+ *
+ * @param options - base prefix and fetch, for a test that wants to observe the
+ *   requests rather than make them.
+ */
+export function createHabitClient(options: HabitClientOptions = {}): HabitClient {
+  const base = options.base ?? BASE
+  const doFetch = options.doFetch ?? fetch
+  const url = (name: RouteName, params?: Record<string, string | number | undefined>): string =>
+    `${base}${urlOf(name, params).slice(API_PREFIX.length)}`
+
+  /** Perform one call, turning a failure payload into a `HabitApiError`. */
+  async function request<T>(path: string, init?: RequestInit): Promise<T> {
+    let response: Response
+    try {
+      response = await doFetch(path, init)
+    } catch (cause) {
+      throw new HabitApiError(0, 'habit/unreachable', `无法连接插件服务：${String(cause)}`)
+    }
+    const payload = await response.json().catch(() => null) as
+      | { error?: { code?: string; message?: string } }
+      | null
+    if (!response.ok) {
+      throw new HabitApiError(
+        response.status,
+        payload?.error?.code ?? 'habit/unknown',
+        payload?.error?.message ?? `HTTP ${response.status}`,
+      )
+    }
+    return payload as T
+  }
+
   /**
    * The host half is only replaced by a `dsh` restart, while this bundle hot
    * reloads on its own. A board running against an older host would otherwise
@@ -201,63 +217,66 @@ export function createHabitClient(): HabitClient {
 
   return {
     clock: async () => {
-      const value = await request<ClockView>('/clock')
+      const value = await request<ClockView>(url('clock'))
       if (typeof value.today !== 'string') staleHost()
       return value
     },
-    state: async (date) => {
-      const value = await request<StateView>(`/state${query({ date })}`)
+    state: async date => {
+      const value = await request<StateView>(url('state', { date }))
       if (value.day === undefined || typeof value.day.date !== 'string') staleHost()
       return value
     },
-    check: (date, habit) => request<StateView>('/check', body('POST', { date, habit })),
+    check: (date, habit) => request<StateView>(url('check'), body('check', { date, habit })),
     uncheck: (date, habit, index) => request<StateView>(
-      `/check${query({ date, habit, index })}`,
-      { method: 'DELETE' },
+      url('uncheck', { date, habit, index }),
+      { method: routes.uncheck.method },
     ),
-    editCheck: (date, habit, index, time) => request<StateView>('/check', body('PATCH', {
+    editCheck: (date, habit, index, time) => request<StateView>(url('editCheck'), body('editCheck', {
       date,
       habit,
       ...(index === undefined ? {} : { index }),
       time,
     })),
-    setMeal: (date, slot, options) => request<StateView>('/meal', body('PUT', {
+    setMeal: (date, slot, options) => request<StateView>(url('setMeal'), body('setMeal', {
       date,
       slot,
       ...(options?.time === undefined ? {} : { time: options.time }),
       ...(options?.price === undefined ? {} : { price: options.price }),
     })),
-    clearMeal: (date, slot) => request<StateView>(`/meal${query({ date, slot })}`, { method: 'DELETE' }),
-    setStock: pending => request<StateView>('/laundry/stock', body('PATCH', { pending })),
-    wash: (date, pieces, time) => request<StateView>('/laundry/wash', body('POST', {
+    clearMeal: (date, slot) => request<StateView>(
+      url('clearMeal', { date, slot }),
+      { method: routes.clearMeal.method },
+    ),
+    setStock: pending => request<StateView>(url('laundryStock'), body('laundryStock', { pending })),
+    wash: (date, pieces, time) => request<StateView>(url('laundryWash'), body('laundryWash', {
       date,
       pieces,
       ...(time === undefined ? {} : { time }),
     })),
-    addSession: (date, kind, entry) => request<StateView>('/session', body('POST', { date, kind, entry })),
-    patchSession: (date, kind, id, patch) => request<StateView>('/session', body('PATCH', { date, kind, id, patch })),
+    addSession: (date, kind, entry) => request<StateView>(url('addSession'), body('addSession', { date, kind, entry })),
+    patchSession: (date, kind, id, patch) => request<StateView>(url('patchSession'), body('patchSession', { date, kind, id, patch })),
     removeSession: (date, kind, id) => request<StateView>(
-      `/session${query({ date, kind, id })}`,
-      { method: 'DELETE' },
+      url('removeSession', { date, kind, id }),
+      { method: routes.removeSession.method },
     ),
     setVocabTarget: (date, target) => request<StateView>(
-      '/vocab-target',
-      body('PUT', { date, new: target.new, review: target.review }),
+      url('setVocabTarget'),
+      body('setVocabTarget', { date, new: target.new, review: target.review }),
     ),
-    setRun: (date, options) => request<StateView>('/run', body('PUT', { date, ...options })),
-    clearRun: date => request<StateView>(`/run${query({ date })}`, { method: 'DELETE' }),
-    addMedia: input => request<MediaResult>('/media', body('POST', input)),
-    patchMedia: (id, patch) => request<MediaResult>('/media', body('PATCH', { id, patch })),
-    removeMedia: id => request<MediaResult>(`/media${query({ id })}`, { method: 'DELETE' }),
-    addTask: input => request<TaskResult>('/tasks', body('POST', input)),
-    patchTask: (id, patch) => request<TaskResult>('/tasks', body('PATCH', { id, patch })),
-    removeTask: id => request<TaskResult>(`/tasks${query({ id })}`, { method: 'DELETE' }),
-    stats: (from, to) => request<StatsView>(`/stats${query({ from, to })}`),
+    setRun: (date, run) => request<StateView>(url('setRun'), body('setRun', { date, ...run })),
+    clearRun: date => request<StateView>(url('clearRun', { date }), { method: routes.clearRun.method }),
+    addMedia: input => request<MediaResult>(url('addMedia'), body('addMedia', input)),
+    patchMedia: (id, patch) => request<MediaResult>(url('patchMedia'), body('patchMedia', { id, patch })),
+    removeMedia: id => request<MediaResult>(url('removeMedia', { id }), { method: routes.removeMedia.method }),
+    addTask: input => request<TaskResult>(url('addTask'), body('addTask', input)),
+    patchTask: (id, patch) => request<TaskResult>(url('patchTask'), body('patchTask', { id, patch })),
+    removeTask: id => request<TaskResult>(url('removeTask', { id }), { method: routes.removeTask.method }),
+    stats: (from, to) => request<StatsView>(url('stats', { from, to })),
     exportAll: async () => {
-      const value = await request<{ ok: true; backup: BackupBundle }>('/backup')
+      const value = await request<{ ok: true; backup: BackupBundle }>(url('exportBackup'))
       if (value.backup === undefined) staleHost()
       return value.backup
     },
-    importAll: (mode, backup) => request<ImportResult>('/backup', body('POST', { mode, backup })),
+    importAll: (mode, backup) => request<ImportResult>(url('importBackup'), body('importBackup', { mode, backup })),
   }
 }

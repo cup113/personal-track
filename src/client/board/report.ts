@@ -13,7 +13,7 @@
  * tasks due on the viewed date at their *current* progress.
  */
 import type { ClockView, StateView } from '../types.ts'
-import { dayLabelOf, fractionText, moneyOf, paceLabel, paceOf } from './format.ts'
+import { dayLabelOf, fractionText, moneyOf, paceLabel, paceOf, percentOf } from './format.ts'
 
 /** A report line; `null` when the group has nothing worth a line. */
 type Line = string | null
@@ -40,7 +40,7 @@ function mealsLine(state: StateView): Line {
 /** 学习: weighted vocabulary progress plus the day's lessons. */
 function studyLine(state: StateView): Line {
   const vocab = state.day.vocab
-  const percent = Math.round(vocab.ratio * 100)
+  const percent = percentOf(vocab.ratio)
   const surplus = vocab.surplusNew + vocab.surplusReview
   const details = [
     `新 ${vocab.doneNew}/${vocab.targetNew}`,
@@ -115,7 +115,7 @@ function taskLine(state: StateView, clock: ClockView): Line {
 export function dayReport(state: StateView, clock: ClockView): string {
   const { day } = state
   const night = clock.nightTail && day.date === clock.today
-  const percent = day.progress.total === 0 ? 0 : Math.round(day.progress.done / day.progress.total * 100)
+  const percent = percentOf(day.progress.total === 0 ? 0 : day.progress.done / day.progress.total)
   const lines: Line[] = [
     `习惯日报 ${dayLabelOf(day.date, night)}`,
     `完成 ${fractionText(day.progress.done)}/${day.progress.total}（${percent}%）`,

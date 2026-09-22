@@ -1,34 +1,51 @@
 /**
  * The plugin's own HTTP API, served on `ctx.webServer` under `/habit/api`.
  *
- * Transport rationale: docs/adr/0001-out-of-tree-transport.md. Request bodies
- * are validated with the same zod vocabulary as the stored records, failures
- * use one shape — `{ error: { code, message } }` — and every mutation answers
- * with the refreshed state slice so the client never has to re-read.
+ * Transport rationale: docs/adr/0001-out-of-tree-transport.md. This module is
+ * deliberately thin — it reads a body, resolves the route from the shared
+ * table, calls one handler, and maps any failure onto one shape:
+ * `{ error: { code, message } }`. The rules themselves live in `routes.ts`, and
+ * the route names live in `src/shared/route.ts` so the browser half builds its
+ * requests from the same declaration.
+ *
+ * The transport is two interfaces rather than all of `node:http`, which is what
+ * makes every route drivable from a test with no socket.
  */
-import type { IncomingMessage, ServerResponse } from 'node:http'
 import { z } from 'zod'
-import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import { BackupFormatError, type Backup, type ImportMode } from './backup.ts'
+import { ApiError } from './api-error.ts'
+import type { Backup } from './backup.ts'
 import type { Config, DayBoundary } from './config.ts'
-import { habitDayKey, instantForHabitDay, isNightTail, dayKeySpan, type DayKey } from './daykey.ts'
-import { mediaRecord, taskRecord } from './domain.ts'
-import { buildStats } from './stats.ts'
-import type { HabitStore, SessionKind } from './store.ts'
+import { habitDayKey, instantForHabitDay, type DayKey } from './daykey.ts'
+import { BACKUP_BODY_LIMIT, handlers, type RouteCtx } from './routes.ts'
+import type { HabitStore } from './store.ts'
+import { API_PREFIX, routes, type RouteName } from '../shared/route.ts'
 
-/** The prefix this plugin owns. */
-export const API_PREFIX = '/habit/api'
+export { API_PREFIX } from '../shared/route.ts'
+export { ApiError } from './api-error.ts'
 
-/** One API failure, mapped to a status and the uniform error shape. */
-class ApiError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    message: string,
-  ) {
-    super(message)
-  }
+/**
+ * The transport this handler actually needs — not all of `node:http`.
+ *
+ * `node:http`'s own types are structurally wider than this (an
+ * `IncomingMessage` is async-iterable and a `ServerResponse` writes headers
+ * and ends), so the real server still satisfies it. Narrowing the signature is
+ * what lets a test drive every route without opening a socket: the whole route
+ * matrix, including the failure paths, runs against a request/response double.
+ */
+export interface HabitRequest {
+  readonly method?: string
+  readonly url?: string
+  [Symbol.asyncIterator](): AsyncIterator<Buffer | string>
 }
+
+/** The response half of the transport: write a status and a body, nothing more. */
+export interface HabitResponse {
+  writeHead(status: number, headers: Record<string, string>): unknown
+  end(body?: string): unknown
+}
+
+/** The handler shape this module produces. */
+export type HabitHandler = (req: HabitRequest, res: HabitResponse) => Promise<void>
 
 /** Everything the handler needs from the plugin. */
 export interface ApiDeps {
@@ -40,51 +57,18 @@ export interface ApiDeps {
 }
 
 /** A backup file is far larger than an ordinary mutation body. */
-const BACKUP_BODY_LIMIT = 16 * 1024 * 1024
+const BODY_LIMIT = 64 * 1024
 
 const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD')
-const ISO = z.string().min(1)
-const SLOT = z.enum(['breakfast', 'lunch', 'dinner'])
-
-/** Per-kind session entry schemas; `at` is stamped by the server when absent. */
-const sessionSchemas = {
-  vocab: z.object({
-    at: ISO.optional(),
-    new: z.number().int().nonnegative(),
-    review: z.number().int().nonnegative(),
-    minutes: z.number().nonnegative(),
-  }),
-  duolingo: z.object({ at: ISO.optional(), minutes: z.number().nonnegative() }),
-  rope: z.object({
-    at: ISO.optional(),
-    preset: z.union([z.literal(90), z.literal(180)]),
-    seconds: z.number().nonnegative(),
-    avgHr: z.number().int().positive().optional(),
-  }),
-  pullup: z.object({ at: ISO.optional(), seconds: z.number().nonnegative() }),
-  equipment: z.object({
-    at: ISO.optional(),
-    name: z.string().min(1),
-    reps: z.number().int().nonnegative(),
-    weight: z.number().nonnegative().optional(),
-  }),
-  washing: z.object({ at: ISO.optional(), pieces: z.number().int().positive() }),
-} satisfies Record<SessionKind, z.ZodType>
-
-/** Narrow a string to a session kind. */
-function asSessionKind(value: unknown): SessionKind {
-  if (typeof value === 'string' && value in sessionSchemas) return value as SessionKind
-  throw new ApiError(400, 'habit/bad-request', `unknown session kind: ${String(value)}`)
-}
 
 /** Write one JSON response. */
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
+function sendJson(res: HabitResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
   res.end(JSON.stringify(body))
 }
 
 /** Read and parse a JSON body, bounded in size. */
-async function readJson(req: IncomingMessage, limit = 64 * 1024): Promise<unknown> {
+async function readJson(req: HabitRequest, limit = BODY_LIMIT): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of req) {
@@ -95,27 +79,48 @@ async function readJson(req: IncomingMessage, limit = 64 * 1024): Promise<unknow
   }
   if (size === 0) return {}
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>
   } catch {
     throw new ApiError(400, 'habit/bad-json', 'request body is not valid JSON')
   }
 }
 
-/** Parse with zod, or fail as a 400. */
-function parse<T extends z.ZodType>(schema: T, value: unknown, what: string): z.infer<T> {
-  const result = schema.safeParse(value)
-  if (!result.success) {
-    const first = result.error.issues[0]
-    throw new ApiError(400, 'habit/bad-request', `${what}: ${first?.path.join('.') ?? ''} ${first?.message ?? 'invalid'}`.trim())
-  }
-  return result.data
+/** The `GET`/`POST`/… half of a route key. */
+type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+
+/** Find the declared route a request names, or fail as a 404. */
+function routeFor(method: string, path: string): RouteName {
+  const found = (Object.keys(routes) as RouteName[]).find(
+    (name) => {
+      const entry = routes[name]
+      return entry.method === method && entry.request === path
+    },
+  )
+  if (found === undefined) throw new ApiError(404, 'habit/unknown-route', `no route for ${method} ${path}`)
+  return found
 }
 
-/** Create the route handler. */
-export function createApiHandler(deps: ApiDeps): WebRoute['handler'] {
+/**
+ * Create the route handler.
+ *
+ * @param deps - the store, the backup surface, the day boundary, the config and
+ *   a clock.
+ * @returns a transport-agnostic handler.
+ */
+export function createApiHandler(deps: ApiDeps): HabitHandler {
   const { store } = deps
   const iso = (): string => deps.now().toISOString()
   const today = (): DayKey => habitDayKey(deps.now(), deps.boundary)
+
+  /** Parse with zod, or fail as a 400. */
+  function parse<T extends z.ZodType>(schema: T, value: unknown, what: string): z.infer<T> {
+    const result = schema.safeParse(value)
+    if (!result.success) {
+      const first = result.error.issues[0]
+      throw new ApiError(400, 'habit/bad-request', `${what}: ${first?.path.join('.') ?? ''} ${first?.message ?? 'invalid'}`.trim())
+    }
+    return result.data
+  }
 
   /** Date from body/query, else the current habit day. */
   function dateOf(source: { date?: unknown }, fallback: DayKey): DayKey {
@@ -154,391 +159,56 @@ export function createApiHandler(deps: ApiDeps): WebRoute['handler'] {
     return typeof rawEntry.at === 'string' ? rawEntry.at : undefined
   }
 
+  /** The state slice every mutation answers with. */
   function stateFor(date: DayKey): Record<string, unknown> {
     return { ok: true, ...store.view(date, today()) }
   }
 
-  async function handle(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
-    const method = req.method ?? 'GET'
-    const route = url.pathname.slice(API_PREFIX.length) || '/'
-    const query = Object.fromEntries(url.searchParams.entries())
-    const key = `${method} ${route}`
-
-    switch (key) {
-      case 'GET /state': {
-        sendJson(res, 200, stateFor(dateOf(query, today())))
-        return
-      }
-
-      case 'GET /clock': {
-        const now = deps.now()
-        sendJson(res, 200, {
-          ok: true,
-          today: today(),
-          nightTail: isNightTail(now, deps.boundary),
-          now: now.toISOString(),
-          config: {
-            dayStartHour: deps.config.dayStartHour,
-            defaultVocabTarget: deps.config.defaultVocabTarget,
-            defaultRunMinutes: deps.config.defaultRunMinutes,
-          },
-        })
-        return
-      }
-
-      case 'POST /check': {
-        const raw = parse(z.object({
-          date: DATE.optional(),
-          habit: z.enum(['wash', 'shower']),
-          /** Optional clock time, for backfilling at a known hour. */
-          time: z.string().optional(),
-          at: ISO.optional(),
-        }), await readJson(req), 'check')
-        const date = dateOf(raw, today())
-        const body = resolveAt(raw, date)
-        const at = typeof body.at === 'string' ? body.at : iso()
-        if (raw.habit === 'wash') {
-          const current = store.readDay(date)?.washes.times.length ?? 0
-          if (current >= 2) throw new ApiError(409, 'habit/check-limit', '洗漱每日至多两次')
-          await store.mutateDay(date, day => ({
-            ...day,
-            washes: { times: [...day.washes.times, at] },
-          }))
-        } else {
-          await store.mutateDay(date, day => ({ ...day, shower: { at } }))
-        }
-        sendJson(res, 200, stateFor(date))
-        return
-      }
-
-      case 'PATCH /check': {
-        const raw = parse(z.object({
-          date: DATE.optional(),
-          habit: z.enum(['wash', 'shower']),
-          /** Which recorded check to retime; defaults to the most recent. */
-          index: z.number().int().nonnegative().optional(),
-          time: z.string().optional(),
-          at: ISO.optional(),
-        }), await readJson(req), 'check edit')
-        const date = dateOf(raw, today())
-        const body = resolveAt(raw, date)
-        const at = body.at
-        if (typeof at !== 'string') throw new ApiError(400, 'habit/bad-request', '需要 time 或 at')
-        const existing = store.readDay(date)
-        if (raw.habit === 'wash') {
-          const times = existing?.washes.times ?? []
-          const index = raw.index ?? times.length - 1
-          if (index < 0 || index >= times.length) {
-            throw new ApiError(404, 'habit/not-found', '没有这条打卡')
-          }
-          await store.mutateDay(date, day => ({
-            ...day,
-            washes: { times: day.washes.times.map((entry, position) => (position === index ? at : entry)) },
-          }))
-        } else {
-          if (existing?.shower.at == null) throw new ApiError(404, 'habit/not-found', '洗澡尚未打卡')
-          await store.mutateDay(date, day => ({ ...day, shower: { at } }))
-        }
-        sendJson(res, 200, stateFor(date))
-        return
-      }
-
-      case 'DELETE /check': {
-        const body = parse(z.object({
-          date: DATE.optional(),
-          habit: z.enum(['wash', 'shower']),
-          /** Which recorded check to drop; defaults to the most recent one. */
-          index: z.coerce.number().int().nonnegative().optional(),
-        }), query, 'check')
-        const date = dateOf(body, today())
-        await store.mutateDay(date, (day) => {
-          if (body.habit !== 'wash') return { ...day, shower: { at: null } }
-          const times = [...day.washes.times]
-          const index = body.index ?? times.length - 1
-          if (index >= 0 && index < times.length) times.splice(index, 1)
-          return { ...day, washes: { times } }
-        })
-        sendJson(res, 200, stateFor(date))
-        return
-      }
-
-      case 'PUT /meal': {
-        const raw = parse(z.object({
-          date: DATE.optional(),
-          slot: SLOT,
-          /** Optional clock time; absent means "now". */
-          time: z.string().optional(),
-          at: ISO.optional(),
-          price: z.number().nonnegative().optional(),
-        }), await readJson(req), 'meal')
-        const date = dateOf(raw, today())
-        const body = resolveAt(raw, date)
-        const meal = {
-          at: typeof body.at === 'string' ? body.at : iso(),
-          ...(body.price === undefined ? {} : { price: body.price }),
-        }
-        await store.mutateDay(date, day => ({ ...day, meals: { ...day.meals, [raw.slot]: meal } }))
-        sendJson(res, 200, stateFor(date))
-        return
-      }
-
-      case 'DELETE /meal': {
-        const body = parse(z.object({ date: DATE.optional(), slot: SLOT }), query, 'meal')
-        const date = dateOf(body, today())
-        await store.mutateDay(date, (day) => {
-          const meals = { ...day.meals }
-          delete meals[body.slot]
-          return { ...day, meals }
-        })
-        sendJson(res, 200, stateFor(date))
-        return
-      }
-
-      case 'POST /session': {
-        const body = parse(z.object({
-          date: DATE.optional(),
-          kind: z.string(),
-          entry: z.unknown(),
-        }), await readJson(req), 'session')
-        const kind = asSessionKind(body.kind)
-        const date = dateOf(body, today())
-        const rawEntry = (body.entry ?? {}) as Record<string, unknown>
-        const entry = parse(sessionSchemas[kind], body.entry, `session ${kind}`) as Record<string, unknown>
-        await store.addSession(date, kind, { ...entry, at: entryInstant(rawEntry, date) ?? iso() })
-        sendJson(res, 200, stateFor(date))
-        return
-      }
-
-      case 'PATCH /session': {
-        const body = parse(z.object({
-          date: DATE.optional(),
-          kind: z.string(),
-          id: z.string().min(1),
-          patch: z.unknown(),
-        }), await readJson(req), 'session')
-        const kind = asSessionKind(body.kind)
-        const date = dateOf(body, today())
-        const rawPatch = (body.patch ?? {}) as Record<string, unknown>
-        const patch = parse(sessionSchemas[kind].partial(), body.patch, `session ${kind}`) as Record<string, unknown>
-        const instant = entryInstant(rawPatch, date)
-        await store.patchSession(date, kind, body.id,
-          instant === undefined ? patch : { ...patch, at: instant })
-        sendJson(res, 200, stateFor(date))
-        return
-      }
-
-      case 'DELETE /session': {
-        const body = parse(z.object({
-          date: DATE.optional(),
-          kind: z.string(),
-          id: z.string().min(1),
-        }), query, 'session')
-        const kind = asSessionKind(body.kind)
-        const date = dateOf(body, today())
-        await store.removeSession(date, kind, body.id)
-        sendJson(res, 200, stateFor(date))
-        return
-      }
-
-      case 'PUT /run': {
-        const raw = parse(z.object({
-          date: DATE.optional(),
-          /** Optional clock time; absent means "now". */
-          time: z.string().optional(),
-          at: ISO.optional(),
-          minutes: z.number().positive().optional(),
-          distanceKm: z.number().nonnegative(),
-          avgHr: z.number().int().positive().optional(),
-        }), await readJson(req), 'run')
-        const date = dateOf(raw, today())
-        const body = resolveAt(raw, date)
-        const run = {
-          at: typeof body.at === 'string' ? body.at : iso(),
-          minutes: raw.minutes ?? deps.config.defaultRunMinutes,
-          distanceKm: raw.distanceKm,
-          ...(raw.avgHr === undefined ? {} : { avgHr: raw.avgHr }),
-        }
-        await store.mutateDay(date, day => ({ ...day, run }))
-        sendJson(res, 200, stateFor(date))
-        return
-      }
-
-      case 'DELETE /run': {
-        const body = parse(z.object({ date: DATE.optional() }), query, 'run')
-        const date = dateOf(body, today())
-        await store.mutateDay(date, day => ({ ...day, run: null }))
-        sendJson(res, 200, stateFor(date))
-        return
-      }
-
-      case 'PUT /vocab-target': {
-        const body = parse(z.object({
-          date: DATE.optional(),
-          new: z.number().int().nonnegative(),
-          review: z.number().int().nonnegative(),
-        }), await readJson(req), 'vocab-target')
-        const date = dateOf(body, today())
-        await store.setVocabTarget(date, { new: body.new, review: body.review })
-        sendJson(res, 200, stateFor(date))
-        return
-      }
-
-      case 'POST /laundry/wash': {
-        const raw = parse(z.object({
-          date: DATE.optional(),
-          pieces: z.number().int().positive(),
-          /** Optional clock time; absent means "now". */
-          time: z.string().optional(),
-          at: ISO.optional(),
-        }), await readJson(req), 'laundry wash')
-        const date = dateOf(raw, today())
-        const body = resolveAt(raw, date)
-        const { stock } = await store.wash(date, raw.pieces, typeof body.at === 'string' ? body.at : iso())
-        sendJson(res, 200, { ...stateFor(date), stock })
-        return
-      }
-
-      case 'PATCH /laundry/stock': {
-        const body = parse(z.object({
-          pending: z.number().int().nonnegative(),
-          at: ISO.optional(),
-        }), await readJson(req), 'laundry stock')
-        const stock = await store.setStock(body.pending, body.at ?? iso())
-        sendJson(res, 200, { ...stateFor(today()), stock })
-        return
-      }
-
-      case 'GET /backup': {
-        sendJson(res, 200, { ok: true, backup: deps.backup.exportAll(iso()) })
-        return
-      }
-
-      case 'POST /backup': {
-        const body = parse(z.object({
-          /** `merge` overwrites the keys the file carries; `replace` also
-           *  drops everything the file does not carry. */
-          mode: z.enum(['merge', 'replace']).default('merge'),
-          backup: z.unknown(),
-        }), await readJson(req, BACKUP_BODY_LIMIT), 'backup import')
-        let report
-        try {
-          report = await deps.backup.importAll(body.backup, body.mode as ImportMode)
-        } catch (cause) {
-          if (cause instanceof BackupFormatError) throw new ApiError(400, 'habit/bad-backup', cause.message)
-          throw cause
-        }
-        sendJson(res, 200, { ok: true, report, ...store.view(today(), today()) })
-        return
-      }
-
-      case 'GET /stats': {
-        const range = parse(z.object({
-          from: DATE.optional(),
-          to: DATE.optional(),
-        }), query, 'stats range')
-        const to = range.to ?? today()
-        const from = range.from ?? to
-        if (from > to) throw new ApiError(400, 'habit/bad-request', 'from 必须不晚于 to')
-        if (dayKeySpan(from, to, 401) > 400) {
-          throw new ApiError(400, 'habit/range-too-large', '统计范围最多 400 天')
-        }
-        sendJson(res, 200, { ok: true, ...buildStats(store, from, to, deps.boundary) })
-        return
-      }
-
-      case 'GET /media': {
-        sendJson(res, 200, { ok: true, media: store.view(today(), today()).media })
-        return
-      }
-
-      case 'POST /media': {
-        const body = parse(mediaRecord.omit({ id: true, createdAt: true, status: true }).extend({
-          status: mediaRecord.shape.status.optional(),
-        }), await readJson(req), 'media')
-        const record = mediaRecord.parse({
-          ...body,
-          id: store.newId(),
-          status: body.status ?? 'active',
-          createdAt: iso(),
-        })
-        await store.putMedia(record)
-        sendJson(res, 200, { ok: true, media: store.view(today(), today()).media, entry: record })
-        return
-      }
-
-      case 'PATCH /media': {
-        const body = parse(z.object({ id: z.string().min(1), patch: z.unknown() }), await readJson(req), 'media patch')
-        // `null` clears an optional field; an absent key leaves it alone.
-        const patch = parse(z.object({
-          kind: z.enum(['film', 'book']).optional(),
-          title: z.string().min(1).optional(),
-          status: z.enum(['active', 'done', 'dropped']).optional(),
-          rating: z.number().int().min(1).max(5).nullable().optional(),
-          startedAt: z.string().nullable().optional(),
-          finishedAt: z.string().nullable().optional(),
-          notes: z.string().nullable().optional(),
-        }), body.patch, 'media patch')
-        const entry = await store.patchMedia(body.id, patch)
-        sendJson(res, 200, { ok: true, media: store.view(today(), today()).media, entry })
-        return
-      }
-
-      case 'DELETE /media': {
-        const body = parse(z.object({ id: z.string().min(1) }), query, 'media delete')
-        const removed = await store.deleteMedia(body.id)
-        sendJson(res, 200, { ok: true, removed, media: store.view(today(), today()).media })
-        return
-      }
-
-      case 'GET /tasks': {
-        sendJson(res, 200, { ok: true, tasks: store.view(today(), today()).tasks })
-        return
-      }
-
-      case 'POST /tasks': {
-        const body = parse(taskRecord.omit({ id: true, createdAt: true }).partial({
-          progress: true, title: true,
-        }).extend({ title: z.string().min(1) }), await readJson(req), 'task')
-        const record = taskRecord.parse({ ...body, id: store.newId(), createdAt: iso() })
-        await store.putTask(record)
-        sendJson(res, 200, { ok: true, tasks: store.view(today(), today()).tasks, entry: record })
-        return
-      }
-
-      case 'PATCH /tasks': {
-        const body = parse(z.object({ id: z.string().min(1), patch: z.unknown() }), await readJson(req), 'task patch')
-        // `null` clears an optional field; `progress` merges field by field.
-        const patch = parse(z.object({
-          title: z.string().min(1).optional(),
-          category: z.string().nullable().optional(),
-          due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'due must be YYYY-MM-DD').nullable().optional(),
-          progress: z.object({
-            current: z.number().int().nonnegative().optional(),
-            total: z.number().int().positive().nullable().optional(),
-          }).optional(),
-          notes: z.string().nullable().optional(),
-        }), body.patch, 'task patch')
-        const entry = await store.patchTask(body.id, patch)
-        sendJson(res, 200, { ok: true, tasks: store.view(today(), today()).tasks, entry })
-        return
-      }
-
-      case 'DELETE /tasks': {
-        const body = parse(z.object({ id: z.string().min(1) }), query, 'task delete')
-        const removed = await store.deleteTask(body.id)
-        sendJson(res, 200, { ok: true, removed, tasks: store.view(today(), today()).tasks })
-        return
-      }
-
-      default:
-        throw new ApiError(404, 'habit/unknown-route', `no route for ${key}`)
-    }
+  const ctx: RouteCtx = {
+    store,
+    backup: deps.backup,
+    boundary: deps.boundary,
+    config: deps.config,
+    now: deps.now,
+    iso,
+    today,
+    stateFor,
+    parse,
+    dateOf,
+    resolveAt,
+    entryInstant,
   }
 
-  return async (req, res) => {
-    const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+  /**
+   * The declared routes and the implemented ones must be the same set.
+   *
+   * `handlers` is typed `Record<RouteName, …>`, so this cannot fail for a
+   * missing entry without a compile error; it is the *extra* direction — a
+   * handler with no declaration — that only a runtime check can catch, and a
+   * route table that has drifted from reality is exactly the bug this table
+   * exists to prevent.
+   */
+  const declared = Object.keys(routes) as RouteName[]
+  const implemented = Object.keys(handlers) as RouteName[]
+  const undocumented = implemented.filter(name => !declared.includes(name))
+  if (undocumented.length > 0) {
+    throw new Error(`personal-track: route handlers with no declaration: ${undocumented.join(', ')}`)
+  }
+
+  return async (req: HabitRequest, res: HabitResponse): Promise<void> => {
     try {
-      await handle(req, res, url)
+      const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+      const method = (req.method ?? 'GET') as Method
+      const path = url.pathname.slice(API_PREFIX.length) || '/'
+      const name = routeFor(method, path)
+      // A backup import is the one body that legitimately dwarfs a mutation.
+      const limit = name === 'importBackup' ? BACKUP_BODY_LIMIT : BODY_LIMIT
+      // Read unconditionally: `readJson` answers `{}` for an empty stream, and
+      // deleting a check is addressed by its query string, so there is nothing
+      // to special-case per verb.
+      const body = await readJson(req, limit)
+      const query = Object.fromEntries(url.searchParams.entries())
+      sendJson(res, 200, await handlers[name](ctx, body, query))
     } catch (error) {
       if (error instanceof ApiError) {
         sendJson(res, error.status, { error: { code: error.code, message: error.message } })

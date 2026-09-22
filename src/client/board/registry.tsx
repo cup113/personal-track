@@ -9,18 +9,24 @@
  * when the record actually had it**, so a patch that leaves a field alone can
  * never silently clear it.
  */
-import { useState, type JSX, type PointerEvent as ReactPointerEvent } from 'react'
+import { useReducer, useState, type JSX, type PointerEvent as ReactPointerEvent } from 'react'
 import type { MediaInput, MediaPatch, TaskInput, TaskPatch } from '../api.ts'
 import type { MediaEntry, TaskEntry } from '../types.ts'
+import { IDLE, editor, isAdding, isEditing, type EditorAction, type EditorState } from './editor-state.ts'
 import { FieldForm, type FieldSpec } from './fields.tsx'
-import { dueLevelOf, fractionText, timeOf, weekEndKey } from './format.ts'
+import { dueLevelOf, fractionText, mediaStatusLabel, percentOf, timeOf, weekEndKey } from './format.ts'
 import { IconButton, Tile, TileHead } from './tile.tsx'
 
-/** Which editor, if any, is open. */
-type Mode =
-  | { readonly kind: 'idle' }
-  | { readonly kind: 'add' }
-  | { readonly kind: 'edit'; readonly id: string }
+/** Which editor, if any, is open. Shared with every other list on the board. */
+type Mode = EditorState
+
+/** The transition, bound to a list's ids so an edit of a vanished row closes. */
+function useEditor(ids: readonly string[]): [Mode, (action: EditorAction) => void] {
+  return useReducer(
+    (state: Mode, action: EditorAction) => editor(state, action, ids),
+    IDLE,
+  )
+}
 
 /** Fields a media entry exposes. */
 const MEDIA_FIELDS: readonly FieldSpec[] = [
@@ -69,8 +75,7 @@ function newTaskFields(today: string): readonly FieldSpec[] {
   return TASK_FIELDS.map(field => (field.name === 'due' ? { ...field, defaultValue: weekend } : field))
 }
 
-/** Display text for a media status. */
-const MEDIA_STATUS: Record<string, string> = { active: '在列', done: '完成', dropped: '弃' }
+/** Display text for a media status; the label table lives in `format.ts`. */
 
 /** A payload for a new media entry; empty optional fields are omitted. */
 function mediaInput(payload: Record<string, unknown>): MediaInput {
@@ -138,20 +143,20 @@ export interface MediaTileProps {
 
 /** What has been watched and read: a log, written after the fact. */
 export function MediaTile({ media, busy, onAdd, onPatch, onRemove }: MediaTileProps): JSX.Element {
-  const [mode, setMode] = useState<Mode>({ kind: 'idle' })
+  const [mode, dispatch] = useEditor(media.map(entry => entry.id))
   const active = media.filter(entry => entry.status === 'active').length
 
   return (
     <Tile span={2}>
       <TileHead title="影视 / 书籍" meta={media.length === 0 ? '空' : `在列 ${active} · 共 ${media.length}`}>
-        <IconButton label="新增记录" disabled={busy} onClick={() => setMode({ kind: 'add' })}>＋</IconButton>
+        <IconButton label="新增记录" disabled={busy} onClick={() => dispatch({ kind: 'open-add' })}>＋</IconButton>
       </TileHead>
 
       {media.length === 0 && mode.kind === 'idle'
         ? <span className="pt-muted">看完一部、读完一本，随时补记</span>
         : null}
 
-      {media.map(entry => (mode.kind === 'edit' && mode.id === entry.id
+      {media.map(entry => (isEditing(mode, entry.id)
         ? (
           <FieldForm
             key={entry.id}
@@ -167,9 +172,9 @@ export function MediaTile({ media, busy, onAdd, onPatch, onRemove }: MediaTilePr
             busy={busy}
             onSubmit={(payload) => {
               onPatch(entry.id, mediaPatch(payload, entry))
-              setMode({ kind: 'idle' })
+              dispatch({ kind: 'close' })
             }}
-            onCancel={() => setMode({ kind: 'idle' })}
+            onCancel={() => dispatch({ kind: 'close' })}
           />
         )
         : (
@@ -181,14 +186,14 @@ export function MediaTile({ media, busy, onAdd, onPatch, onRemove }: MediaTilePr
               {' '}
               {entry.title}
               {entry.rating === undefined ? null : <span className="pt-muted"> ★{entry.rating}</span>}
-              <span className="pt-muted"> · {MEDIA_STATUS[entry.status] ?? entry.status}</span>
+              <span className="pt-muted"> · {mediaStatusLabel(entry.status)}</span>
             </span>
-            <IconButton label="编辑" disabled={busy} onClick={() => setMode({ kind: 'edit', id: entry.id })}>✎</IconButton>
+            <IconButton label="编辑" disabled={busy} onClick={() => dispatch({ kind: 'edit', id: entry.id })}>✎</IconButton>
             <IconButton label="删除" disabled={busy} onClick={() => onRemove(entry.id)}>×</IconButton>
           </div>
         )))}
 
-      {mode.kind === 'add'
+      {isAdding(mode)
         ? (
           <FieldForm
             fields={MEDIA_FIELDS}
@@ -196,9 +201,9 @@ export function MediaTile({ media, busy, onAdd, onPatch, onRemove }: MediaTilePr
             busy={busy}
             onSubmit={(payload) => {
               onAdd(mediaInput(payload))
-              setMode({ kind: 'idle' })
+              dispatch({ kind: 'close' })
             }}
-            onCancel={() => setMode({ kind: 'idle' })}
+            onCancel={() => dispatch({ kind: 'close' })}
           />
         )
         : null}
@@ -274,7 +279,7 @@ function barTitle(entry: TaskEntry, dragging: boolean): string {
     : entry.overdue ? '逾期未完成' : current > 0 ? '进行中' : '未完成'
   const parts = [
     quantized
-      ? `${state} ${Math.round(ratioOf(entry) * 100)}%（${fractionText(current)}/${fractionText(total)}）`
+      ? `${state} ${percentOf(ratioOf(entry))}%（${fractionText(current)}/${fractionText(total)}）`
       : state,
   ]
   if (entry.completedAt !== undefined) {
@@ -390,10 +395,10 @@ function TaskRow({ entry, today, busy, onPatch, onEdit, onRemove }: {
         >
           <span
             className={entry.overdue && entry.state !== 'done' ? 'pt-task-fill pt-task-fill-late' : 'pt-task-fill'}
-            style={{ width: `${Math.round(ratio * 100)}%` }}
+            style={{ width: `${percentOf(ratio)}%` }}
           />
           {quantized
-            ? <span className="pt-task-thumb" style={{ left: `${Math.round(ratio * 100)}%` }} />
+            ? <span className="pt-task-thumb" style={{ left: `${percentOf(ratio)}%` }} />
             : null}
         </button>
         {quantized
@@ -430,7 +435,7 @@ function isArchived(task: TaskEntry, today: string): boolean {
 
 /** Tasks and homework: due soonest first, with the derived state shown. */
 export function TaskTile({ tasks, today, busy, onAdd, onPatch, onRemove }: TaskTileProps): JSX.Element {
-  const [mode, setMode] = useState<Mode>({ kind: 'idle' })
+  const [mode, dispatch] = useEditor(tasks.map(task => task.id))
   const open = tasks.filter(task => task.state !== 'done').length
   const overdue = tasks.filter(task => task.overdue).length
   const dueToday = tasks.filter(task => task.due === today).length
@@ -439,7 +444,7 @@ export function TaskTile({ tasks, today, busy, onAdd, onPatch, onRemove }: TaskT
   const archived = ordered.filter(task => isArchived(task, today))
 
   /** One task, as the open editor or as its row — the same in either list. */
-  const renderTask = (task: TaskEntry): JSX.Element => (mode.kind === 'edit' && mode.id === task.id
+  const renderTask = (task: TaskEntry): JSX.Element => (isEditing(mode, task.id)
     ? (
       <FieldForm
         key={task.id}
@@ -456,9 +461,9 @@ export function TaskTile({ tasks, today, busy, onAdd, onPatch, onRemove }: TaskT
         busy={busy}
         onSubmit={(payload) => {
           onPatch(task.id, taskPatch(payload, task))
-          setMode({ kind: 'idle' })
+          dispatch({ kind: 'close' })
         }}
-        onCancel={() => setMode({ kind: 'idle' })}
+        onCancel={() => dispatch({ kind: 'close' })}
       />
     )
     : (
@@ -468,7 +473,7 @@ export function TaskTile({ tasks, today, busy, onAdd, onPatch, onRemove }: TaskT
         today={today}
         busy={busy}
         onPatch={patch => onPatch(task.id, patch)}
-        onEdit={() => setMode({ kind: 'edit', id: task.id })}
+        onEdit={() => dispatch({ kind: 'edit', id: task.id })}
         onRemove={() => onRemove(task.id)}
       />
     ))
@@ -479,7 +484,7 @@ export function TaskTile({ tasks, today, busy, onAdd, onPatch, onRemove }: TaskT
         title="任务 / 作业"
         meta={`未完成 ${open}${dueToday === 0 ? '' : ` · 今日到期 ${dueToday}`}${overdue === 0 ? '' : ` · 逾期 ${overdue}`}`}
       >
-        <IconButton label="新建任务" disabled={busy} onClick={() => setMode({ kind: 'add' })}>＋</IconButton>
+        <IconButton label="新建任务" disabled={busy} onClick={() => dispatch({ kind: 'open-add' })}>＋</IconButton>
       </TileHead>
 
       {tasks.length === 0 && mode.kind === 'idle' ? <span className="pt-muted">还没有任务</span> : null}
@@ -496,7 +501,7 @@ export function TaskTile({ tasks, today, busy, onAdd, onPatch, onRemove }: TaskT
         </details>
       )}
 
-      {mode.kind === 'add'
+      {isAdding(mode)
         ? (
           <FieldForm
             fields={newTaskFields(today)}
@@ -504,9 +509,9 @@ export function TaskTile({ tasks, today, busy, onAdd, onPatch, onRemove }: TaskT
             busy={busy}
             onSubmit={(payload) => {
               onAdd(taskInput(payload))
-              setMode({ kind: 'idle' })
+              dispatch({ kind: 'close' })
             }}
-            onCancel={() => setMode({ kind: 'idle' })}
+            onCancel={() => dispatch({ kind: 'close' })}
           />
         )
         : null}

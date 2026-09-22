@@ -7,10 +7,10 @@
  * the one hand-drawn SVG; everything else is CSS.
  */
 import { useEffect, useMemo, useState, type JSX } from 'react'
-import { HabitApiError, type HabitClient } from '../api.ts'
+import type { HabitClient } from '../api.ts'
 import type { ClockView, RunPoint, StatsView } from '../types.ts'
 import { DataCard } from './data.tsx'
-import { shiftKey } from './format.ts'
+import { mediaStatusLabel, messageOf, percentOf, shiftKey } from './format.ts'
 import { Pills, Tile, TileHead } from './tile.tsx'
 
 /** The preset ranges the panel offers. */
@@ -34,9 +34,6 @@ const HABIT_LABELS: Record<string, string> = {
   duolingo: '多邻国',
 }
 
-/** Display names for a media status. */
-const MEDIA_STATUS: Record<string, string> = { active: '在列', done: '完成', dropped: '弃' }
-
 /** The range a preset names, inside the given habit day. */
 function presetRange(key: RangeKey, today: string): { from: string; to: string } {
   switch (key) {
@@ -45,12 +42,6 @@ function presetRange(key: RangeKey, today: string): { from: string; to: string }
     case 'd30': return { from: shiftKey(today, -29), to: today }
     case 'd90': return { from: shiftKey(today, -89), to: today }
   }
-}
-
-/** Human text for a failure. */
-function messageOf(cause: unknown): string {
-  if (cause instanceof HabitApiError) return `${cause.message}（${cause.code}）`
-  return cause instanceof Error ? cause.message : String(cause)
 }
 
 /** The panellist icon: three bars. */
@@ -294,7 +285,7 @@ export function StatsPanel({ client }: StatsPanelProps): JSX.Element {
                 ['总件数', `${stats.washing.pieces}`],
               ]} />
               <MetricCard title="三餐" rows={[
-                ['早饭打卡', `${stats.meals.breakfast.days} 天（${Math.round(stats.meals.breakfast.ratio * 100)}%）`],
+                ['早饭打卡', `${stats.meals.breakfast.days} 天（${percentOf(stats.meals.breakfast.ratio)}%）`],
                 ['总花费', `¥${stats.meals.spend}`],
               ]} />
             </div>
@@ -322,7 +313,7 @@ export function StatsPanel({ client }: StatsPanelProps): JSX.Element {
                           <span className="pt-badge">{entry.kind === 'film' ? '影' : '书'}</span>
                           {' '}
                           {entry.title}
-                          <span className="pt-muted"> · {MEDIA_STATUS[entry.status] ?? entry.status}</span>
+                          <span className="pt-muted"> · {mediaStatusLabel(entry.status)}</span>
                         </span>
                       </div>
                     ))}

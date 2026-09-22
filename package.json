@@ -28,8 +28,8 @@
     "build": "node scripts/build.mjs",
     "watch": "node scripts/build.mjs --watch",
     "typecheck": "tsc -p tsconfig.host.json && tsc -p tsconfig.client.json && tsc -p tsconfig.tests.json",
-    "verify": "node scripts/verify-client.mjs && node scripts/verify-host.mjs",
-    "test": "node tests/data-layer.test.ts && node tests/client-format.test.ts"
+    "verify": "pnpm build && node scripts/verify-client.mjs && node scripts/verify-host.mjs",
+    "test": "node scripts/run-tests.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2"

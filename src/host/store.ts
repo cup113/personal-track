@@ -11,7 +11,7 @@
  * Reads therefore never create documents; only a mutation materializes one.
  */
 import { randomUUID } from 'node:crypto'
-import type { Config, VocabTarget } from './config.ts'
+import { clockOf, type Config, type VocabTarget } from './config.ts'
 import type {
   CounterRecord,
   DayRecord,
@@ -151,6 +151,17 @@ export function createHabitStore(domain: HabitDomain, config: Config): HabitStor
   const counters = domain.table('counters')
   const media = domain.table('media')
   const tasks = domain.table('tasks')
+
+  /**
+   * The clock every derived instant is stamped with.
+   *
+   * Completion is derived from progress, so the instant it happened is written
+   * here rather than trusted from a caller — which means this module is where
+   * "now" is actually consulted, and it must be the same clock the API uses.
+   * Reaching for `new Date()` directly here would put two clocks in one plugin
+   * and make the derived instants untestable.
+   */
+  const now = clockOf(config)
 
   /** Copies so callers can never mutate a stored record in place. */
   const copyTarget = (target: VocabTarget): VocabTarget => ({ new: target.new, review: target.review })
@@ -337,7 +348,7 @@ export function createHabitStore(domain: HabitDomain, config: Config): HabitStor
       // Symmetric with tasks: the instant a title was finished is a fact the
       // store keeps in step with the status, not something callers must send.
       if (parsed.status === 'done' && parsed.finishedAt === undefined) {
-        return { ...parsed, finishedAt: new Date().toISOString() }
+        return { ...parsed, finishedAt: now().toISOString() }
       }
       if (parsed.status !== 'done' && parsed.finishedAt !== undefined) {
         const { finishedAt: _cleared, ...rest } = parsed
@@ -364,7 +375,7 @@ export function createHabitStore(domain: HabitDomain, config: Config): HabitStor
       // in step here rather than trusted from every caller.
       const done = taskState(parsed) === 'done'
       if (done && parsed.completedAt === undefined) {
-        return { ...parsed, completedAt: new Date().toISOString() }
+        return { ...parsed, completedAt: now().toISOString() }
       }
       if (!done && parsed.completedAt !== undefined) {
         const { completedAt: _cleared, ...rest } = parsed

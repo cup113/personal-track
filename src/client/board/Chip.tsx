@@ -7,7 +7,7 @@
  */
 import type { JSX } from 'react'
 import type { Cell } from '../types.ts'
-import { fractionText } from './format.ts'
+import { fractionText, percentOf } from './format.ts'
 
 /** Props for the chip. */
 export interface ChipProps {
@@ -17,7 +17,7 @@ export interface ChipProps {
 
 /** What one cell reads as in its tooltip. */
 function describe(cell: Cell): string {
-  const percent = Math.round(cell.value * 100)
+  const percent = percentOf(cell.value)
   if (percent <= 0) return '未完成'
   if (percent >= 100) return '已完成'
   return `进行中 ${percent}%`
@@ -28,8 +28,8 @@ export function Chip({ cells, progress }: ChipProps): JSX.Element {
   return (
     <div className="pt-chip">
       <div className="pt-marks">
-        {cells.map(cell => {
-          const percent = Math.max(0, Math.min(100, Math.round(cell.value * 100)))
+        {cells.map((cell) => {
+          const percent = percentOf(cell.value)
           return (
             <span
               key={cell.id}

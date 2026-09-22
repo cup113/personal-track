@@ -5,7 +5,7 @@
 import { useState, type JSX } from 'react'
 import type { Lesson, VocabProgress, VocabSession } from '../types.ts'
 import { FieldForm, type FieldSpec } from './fields.tsx'
-import { timeOf } from './format.ts'
+import { percentOf, timeOf } from './format.ts'
 import { SessionList, SessionTile, type SessionEntry } from './session-cards.tsx'
 import { IconButton, Tile, TileHead } from './tile.tsx'
 
@@ -46,7 +46,7 @@ export function VocabCard({
 }: VocabCardProps): JSX.Element {
   const [editing, setEditing] = useState(false)
   const surplus = progress.surplusNew + progress.surplusReview
-  const percent = Math.round(progress.ratio * 100)
+  const percent = percentOf(progress.ratio)
 
   return (
     <Tile span={2} tone={progress.met ? 'done' : 'idle'}>
