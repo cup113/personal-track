@@ -150,6 +150,48 @@ export function mediaStatusLabel(status: string): string {
   return { active: '在列', done: '完成', dropped: '弃' }[status] ?? status
 }
 
+/** A checkpoint as the editor's textarea writes it. */
+export interface CheckpointLine {
+  readonly label: string
+  readonly at: number
+}
+
+/**
+ * The checkpoints textarea's contents, one `label@position` per line and
+ * sorted by position — the axis order is the reading order.
+ */
+export function formatCheckpoints(checkpoints: readonly CheckpointLine[]): string {
+  return [...checkpoints]
+    .sort((a, b) => a.at - b.at)
+    .map(checkpoint => `${checkpoint.label}@${checkpoint.at}`)
+    .join('\n')
+}
+
+/**
+ * Parse the checkpoints textarea. A line is `label@position` — the label may
+ * itself contain `@`, so the *last* one separates; the position is a positive
+ * whole number in the task's counting unit. Blank lines are left alone.
+ */
+export function parseCheckpoints(text: string): { list: CheckpointLine[]; problem?: string } {
+  const list: CheckpointLine[] = []
+  const lines = text.split('\n')
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!.trim()
+    if (line === '') continue
+    const separator = line.lastIndexOf('@')
+    if (separator <= 0 || separator === line.length - 1) {
+      return { list, problem: `检查点第 ${index + 1} 行要形如「第一章@10」` }
+    }
+    const label = line.slice(0, separator).trim()
+    const at = Number(line.slice(separator + 1).trim())
+    if (label === '' || !Number.isInteger(at) || at <= 0) {
+      return { list, problem: `检查点第 ${index + 1} 行要形如「第一章@10」` }
+    }
+    list.push({ label, at })
+  }
+  return { list }
+}
+
 /**
  * Human text for whatever a handler threw.
  *

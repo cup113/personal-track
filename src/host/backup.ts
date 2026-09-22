@@ -141,6 +141,13 @@ export function createBackup(domain: HabitDomain): Backup {
     async importAll(value, mode) {
       // Validation first, and in full: a bad file must not land partially.
       const bundle = readBackup(value)
+      // The one rule the schema cannot state about itself: checkpoints sit on
+      // the progress axis, so a task carrying them must also carry a total.
+      for (const task of bundle.tasks) {
+        if (task.checkpoints.length > 0 && task.progress.total === undefined) {
+          throw new BackupFormatError(`备份文件无效：任务「${task.title}」的检查点缺少目标量`)
+        }
+      }
       const dayKeys = new Set(bundle.days.map(record => record.date as DayKey))
       const counterKeys = new Set(Object.keys(bundle.counters))
       const mediaIds = new Set(bundle.media.map(record => record.id))

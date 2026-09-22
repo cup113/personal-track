@@ -77,7 +77,7 @@ await checkAsync('a task exports its record without the states the view derives'
   await populate(api)
   const [task] = api.backup.exportAll('x').tasks
   assert.ok(task)
-  assert.deepEqual(Object.keys(task).sort(), ['category', 'completedAt', 'createdAt', 'due', 'id', 'progress', 'title'].sort())
+  assert.deepEqual(Object.keys(task).sort(), ['category', 'checkpoints', 'completedAt', 'createdAt', 'due', 'id', 'progress', 'title'].sort())
   assert.equal('state' in task, false, '待办/进行中/完成 is derived')
   assert.equal('overdue' in task, false, '逾期 is derived')
 })
@@ -166,6 +166,26 @@ await checkAsync('a refused import does not prune, even in replace mode', async 
   const before = JSON.stringify(api.backup.exportAll('x'))
   await assert.rejects(() => api.import('replace', { hello: 'world' }))
   assert.equal(JSON.stringify(api.backup.exportAll('x')), before)
+})
+
+await checkAsync('a task whose checkpoints have no axis to sit on is refused', async () => {
+  const api = createHarness()
+  await populate(api)
+  const before = JSON.stringify(api.backup.exportAll('x'))
+  // Schema-valid on its own (a total is optional); the fault is cross-field,
+  // so it is the import's own rule that must catch it.
+  const stray = {
+    ...api.backup.exportAll('x'),
+    tasks: [{
+      id: 't9', title: '无轴作业', progress: { current: 0 },
+      checkpoints: [{ id: 'c1', label: '第一章', at: 10 }], createdAt: 'c',
+    }],
+  }
+  await assert.rejects(
+    () => api.import('merge', stray),
+    (cause: unknown) => cause instanceof BackupFormatError && /检查点缺少目标量/.test(cause.message),
+  )
+  assert.equal(JSON.stringify(api.backup.exportAll('x')), before, 'nothing landed')
 })
 
 // --- merge vs replace --------------------------------------------------------

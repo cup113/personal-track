@@ -14,8 +14,10 @@ import {
   daysBetweenKeys,
   dueLevelOf,
   fractionText,
+  formatCheckpoints,
   mediaStatusLabel,
   messageOf,
+  parseCheckpoints,
   percentOf,
   shiftKey,
   TIME_FIELD,
@@ -176,9 +178,9 @@ const reportState: StateView = {
   stock: { pending: 4, updatedAt: '2026-09-19T12:00:00' },
   media: [],
   tasks: [
-    { id: 't1', title: '英语口语', category: '英听说 A', due: '2026-09-20', progress: { current: 2, total: 5 }, createdAt: '2026-09-18T10:00:00', state: 'doing', overdue: false },
-    { id: 't2', title: '高数作业', due: '2026-09-24', progress: { current: 0, total: 1 }, createdAt: '2026-09-19T10:00:00', state: 'todo', overdue: false },
-    { id: 't3', title: '交房租', due: '2026-09-15', progress: { current: 0 }, createdAt: '2026-09-10T10:00:00', state: 'todo', overdue: true },
+    { id: 't1', title: '英语口语', category: '英听说 A', due: '2026-09-20', progress: { current: 2, total: 5 }, checkpoints: [], createdAt: '2026-09-18T10:00:00', state: 'doing', overdue: false },
+    { id: 't2', title: '高数作业', due: '2026-09-24', progress: { current: 0, total: 1 }, checkpoints: [], createdAt: '2026-09-19T10:00:00', state: 'todo', overdue: false },
+    { id: 't3', title: '交房租', due: '2026-09-15', progress: { current: 0 }, checkpoints: [], createdAt: '2026-09-10T10:00:00', state: 'todo', overdue: true },
   ],
 }
 const reportText = dayReport(reportState, reportClock)
@@ -218,6 +220,31 @@ check('an empty day still reports its zeros, and drops the empty groups', () => 
   assert.ok(bare.includes('洗漱 0/2 · 洗澡 —'))
   assert.ok(!bare.includes('跑步'), 'no training, no fitness line')
   assert.ok(!bare.includes('任务：'), 'no tasks due, no task line')
+})
+
+console.log('checkpoint lines (a task\'s stages in the editor)')
+check('formatting sorts by position and joins one per line', () => {
+  assert.equal(
+    formatCheckpoints([{ label: '第二章', at: 20 }, { label: '第一章', at: 10 }]),
+    '第一章@10\n第二章@20',
+  )
+})
+check('parsing takes the last @ as the separator and skips blank lines', () => {
+  assert.deepEqual(parseCheckpoints('第一章@10\n\n晚自习@3@20'), {
+    list: [{ label: '第一章', at: 10 }, { label: '晚自习@3', at: 20 }],
+  })
+})
+check('a line that is not label@position is a problem, not a guess', () => {
+  assert.equal(parseCheckpoints('第一章 10').problem, '检查点第 1 行要形如「第一章@10」')
+  assert.equal(parseCheckpoints('@10').problem, '检查点第 1 行要形如「第一章@10」')
+  assert.equal(parseCheckpoints('第一章@').problem, '检查点第 1 行要形如「第一章@10」')
+  assert.equal(parseCheckpoints('第一章@0').problem, '检查点第 1 行要形如「第一章@10」')
+  assert.equal(parseCheckpoints('第一章@2.5').problem, '检查点第 1 行要形如「第一章@10」')
+  assert.equal(parseCheckpoints('第一章@10\n坏行').problem, '检查点第 2 行要形如「第一章@10」')
+})
+check('an empty textarea is an empty list, never a problem', () => {
+  assert.deepEqual(parseCheckpoints(''), { list: [] })
+  assert.deepEqual(parseCheckpoints(' \n\n'), { list: [] })
 })
 
 console.log(`\n${passed} checks passed`)

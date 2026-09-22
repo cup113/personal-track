@@ -124,12 +124,19 @@ export interface MediaPatch {
   readonly finishedAt?: string | null
 }
 
+/** A checkpoint as the wire carries it: content only — the host owns the id. */
+export interface TaskCheckpointInput {
+  readonly label: string
+  readonly at: number
+}
+
 /** Fields a new task carries. */
 export interface TaskInput {
   readonly title: string
   readonly category?: string
   readonly due?: string
   readonly progress?: { readonly current?: number; readonly total?: number }
+  readonly checkpoints?: readonly TaskCheckpointInput[]
   readonly notes?: string
 }
 
@@ -139,6 +146,7 @@ export interface TaskPatch {
   readonly category?: string | null
   readonly due?: string | null
   readonly progress?: { readonly current?: number; readonly total?: number | null }
+  readonly checkpoints?: readonly TaskCheckpointInput[]
   readonly notes?: string | null
 }
 

@@ -236,6 +236,96 @@ await checkAsync('hard deleting a task takes its cell with it', async () => {
   assert.equal(store.dayFacts(DATE).progress.total, 8)
 })
 
+// --- task checkpoints --------------------------------------------------------
+
+await checkAsync('crossing a checkpoint stamps an instant; dropping back clears it', async () => {
+  const { store } = storeAt()
+  await store.putTask({
+    id: 't1', title: '作业', progress: { current: 0, total: 30 },
+    checkpoints: [{ id: 'c1', label: '第一章', at: 10 }, { id: 'c2', label: '第二章', at: 20 }],
+    createdAt: 'c',
+  } as never)
+  const crossed = await store.patchTask('t1', { progress: { current: 12 } })
+  assert.equal(typeof crossed.checkpoints[0]!.reachedAt, 'string', 'crossing a stage is a fact with a time')
+  assert.equal(crossed.checkpoints[1]!.reachedAt, undefined, 'the stage still ahead keeps nothing')
+  const back = await store.patchTask('t1', { progress: { current: 5 } })
+  assert.equal(back.checkpoints[0]!.reachedAt, undefined, 'dropping below the threshold takes the instant back')
+  const again = await store.patchTask('t1', { progress: { current: 30 } })
+  assert.equal(typeof again.checkpoints[0]!.reachedAt, 'string', 're-crossing stamps anew')
+  assert.equal(typeof again.checkpoints[1]!.reachedAt, 'string', 'and a jump crosses every stage it passes')
+})
+
+await checkAsync('the stamped checkpoint instants come from the configured clock', async () => {
+  const pinned = '2026-09-16T12:00:00.000Z'
+  const { store } = storeAt(pinned)
+  await store.putTask({
+    id: 't1', title: '作业', progress: { current: 0, total: 30 },
+    checkpoints: [{ id: 'c1', label: '第一章', at: 10 }],
+    createdAt: 'c',
+  } as never)
+  const crossed = await store.patchTask('t1', { progress: { current: 12 } })
+  assert.equal(crossed.checkpoints[0]!.reachedAt, pinned)
+})
+
+await checkAsync('a task created past a stage records when it was registered', async () => {
+  const pinned = '2026-09-16T12:00:00.000Z'
+  const { store } = storeAt(pinned)
+  await store.putTask({
+    id: 't1', title: '作业', progress: { current: 12, total: 30 },
+    checkpoints: [{ id: 'c1', label: '第一章', at: 10 }],
+    createdAt: 'c',
+  } as never)
+  const [task] = store.view(DATE, DATE).tasks
+  assert.equal(task!.checkpoints[0]!.reachedAt, pinned, 'half-done homework registered mid-way stamps what it passed')
+})
+
+await checkAsync('checkpoint identity is content: an unchanged line keeps its id and instant', async () => {
+  const { store } = storeAt()
+  await store.putTask({
+    id: 't1', title: '作业', progress: { current: 12, total: 30 },
+    checkpoints: [{ id: 'c1', label: '第一章', at: 10, reachedAt: '2026-09-10T08:00:00Z' }],
+    createdAt: 'c',
+  } as never)
+  const patched = await store.patchTask('t1', {
+    checkpoints: [{ label: '第一章', at: 10 }, { label: '第二章', at: 20 }],
+  })
+  assert.equal(patched.checkpoints[0]!.id, 'c1', 'content that still exists keeps its identity')
+  assert.equal(patched.checkpoints[0]!.reachedAt, '2026-09-10T08:00:00Z', 'and its fact')
+  assert.notEqual(patched.checkpoints[1]!.id, 'c1', 'a new line starts a new identity')
+  assert.equal(patched.checkpoints[1]!.reachedAt, undefined)
+})
+
+await checkAsync('moving a checkpoint recomputes its reach along with its position', async () => {
+  const { store } = storeAt()
+  await store.putTask({
+    id: 't1', title: '作业', progress: { current: 12, total: 30 },
+    checkpoints: [{ id: 'c1', label: '第一章', at: 10, reachedAt: '2026-09-10T08:00:00Z' }],
+    createdAt: 'c',
+  } as never)
+  const moved = await store.patchTask('t1', { checkpoints: [{ label: '第一章', at: 20 }] })
+  assert.equal(moved.checkpoints[0]!.at, 20)
+  assert.equal(moved.checkpoints[0]!.reachedAt, undefined, 'a moved line is a stage the progress has not met')
+  assert.notEqual(moved.checkpoints[0]!.id, 'c1')
+})
+
+await checkAsync('checkpoints without a total are refused on both write paths', async () => {
+  const { store } = storeAt()
+  await assert.rejects(
+    () => store.putTask({
+      id: 't1', title: '作业', progress: { current: 0 },
+      checkpoints: [{ id: 'c1', label: '第一章', at: 10 }], createdAt: 'c',
+    } as never),
+    /needs a progress total/,
+    'a checkbox task has no axis to sit on',
+  )
+  await store.putTask({ id: 't2', title: '作业', progress: { current: 0, total: 30 }, createdAt: 'c' } as never)
+  await assert.rejects(
+    () => store.patchTask('t2', { checkpoints: [{ label: '第一章', at: 10 }], progress: { total: null } }),
+    /needs a progress total/,
+    'clearing the total out from under the stages is the same fault',
+  )
+})
+
 // --- media -------------------------------------------------------------------
 
 await checkAsync('finishing a media entry stamps an instant; un-finishing clears it', async () => {

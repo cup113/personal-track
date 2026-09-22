@@ -13,7 +13,7 @@ export interface FieldSpec {
   readonly name: string
   readonly label: string
   /** `time` and `date` render native pickers; `time` travels as `HH:mm`. */
-  readonly kind: 'number' | 'text' | 'select' | 'time' | 'date'
+  readonly kind: 'number' | 'text' | 'select' | 'time' | 'date' | 'textarea'
   readonly step?: number
   readonly min?: number
   readonly max?: number
@@ -24,6 +24,8 @@ export interface FieldSpec {
   /** Empty is allowed, and the key is then left out of the payload. */
   readonly optional?: boolean
   readonly defaultValue?: string
+  /** Take the form's whole row (a textarea that lists several things). */
+  readonly wide?: boolean
 }
 
 /** Turn raw inputs into an API payload, or report the first problem. */
@@ -64,11 +66,17 @@ export interface FieldFormProps {
   readonly busy: boolean
   readonly onSubmit: (payload: Record<string, unknown>) => void
   readonly onCancel?: () => void
+  /**
+   * Cross-field validation, for rules no single field can see (a checkpoint
+   * list needs the target amount it points into). Runs after the per-field
+   * checks; returning a string is the form's error line.
+   */
+  readonly validate?: (payload: Record<string, unknown>) => string | undefined
 }
 
 /** Render the form. */
 export function FieldForm({
-  fields, initial, submitLabel, busy, onSubmit, onCancel,
+  fields, initial, submitLabel, busy, onSubmit, onCancel, validate,
 }: FieldFormProps): JSX.Element {
   const [values, setValues] = useState<Record<string, string>>(() => {
     const start: Record<string, string> = {}
@@ -88,6 +96,11 @@ export function FieldForm({
       setProblem(issue)
       return
     }
+    const cross = validate?.(payload)
+    if (cross !== undefined) {
+      setProblem(cross)
+      return
+    }
     setProblem(null)
     onSubmit(payload)
   }
@@ -99,7 +112,10 @@ export function FieldForm({
   return (
     <div className="pt-form">
       {fields.map(field => (
-        <label className="pt-field" key={field.name}>
+        <label
+          className={field.wide === true ? 'pt-field pt-field-wide' : 'pt-field'}
+          key={field.name}
+        >
           <span className="pt-muted">{field.label}</span>
           {field.kind === 'select'
             ? (
@@ -113,22 +129,32 @@ export function FieldForm({
                 ))}
               </select>
             )
-            : (
-              <input
-                className="pt-input"
-                type={field.kind === 'number'
-                  ? 'number'
-                  : field.kind === 'time'
-                    ? 'time'
-                    : field.kind === 'date' ? 'date' : 'text'}
-                step={field.step}
-                min={field.min}
-                max={field.max}
-                placeholder={field.placeholder}
-                value={values[field.name] ?? ''}
-                onChange={event => set(field.name, event.target.value)}
-              />
-            )}
+            : field.kind === 'textarea'
+              ? (
+                <textarea
+                  className="pt-input"
+                  rows={3}
+                  placeholder={field.placeholder}
+                  value={values[field.name] ?? ''}
+                  onChange={event => set(field.name, event.target.value)}
+                />
+              )
+              : (
+                <input
+                  className="pt-input"
+                  type={field.kind === 'number'
+                    ? 'number'
+                    : field.kind === 'time'
+                      ? 'time'
+                      : field.kind === 'date' ? 'date' : 'text'}
+                  step={field.step}
+                  min={field.min}
+                  max={field.max}
+                  placeholder={field.placeholder}
+                  value={values[field.name] ?? ''}
+                  onChange={event => set(field.name, event.target.value)}
+                />
+              )}
         </label>
       ))}
       <div className="pt-form-actions">

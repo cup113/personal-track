@@ -126,6 +126,20 @@ export const mediaRecord = z.object({
 /** One media entry. */
 export type MediaRecord = z.infer<typeof mediaRecord>
 
+/**
+ * One named stage on a task's progress axis (a checkpoint).
+ *
+ * `at` shares the task's counting unit (problems, words, chapters), and
+ * "reached" is always derived from `progress.current ≥ at` — never stored.
+ * `reachedAt` is the fact the host keeps in step, exactly like `completedAt`.
+ */
+const taskCheckpoint = z.object({
+  id: sessionId,
+  label: z.string().min(1),
+  at: z.number().int().positive(),
+  reachedAt: z.string().optional(),
+})
+
 /** One task (task-shaped registry: title, optional category/due, progress). */
 export const taskRecord = z.object({
   id: sessionId,
@@ -137,6 +151,8 @@ export const taskRecord = z.object({
     current: z.number().int().nonnegative().default(0),
     total: z.number().int().positive().optional(),
   }).default({ current: 0 }),
+  /** Named stages on the progress axis; only a task with a total may hold any. */
+  checkpoints: z.array(taskCheckpoint).default([]),
   completedAt: z.string().optional(),
   notes: z.string().optional(),
   createdAt: z.string(),
@@ -144,6 +160,9 @@ export const taskRecord = z.object({
 
 /** One task. */
 export type TaskRecord = z.infer<typeof taskRecord>
+
+/** One checkpoint. */
+export type TaskCheckpoint = z.infer<typeof taskCheckpoint>
 
 /** The domain declaration: identity, layout and record schemas. */
 export const habitDomainSpec = defineDomain({

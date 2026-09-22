@@ -322,6 +322,37 @@ await checkAsync('a task patch merges progress, clears on null and follows compl
   assert.equal(listed(cleared).category, undefined, 'null clears the category')
 })
 
+await checkAsync('checkpoints travel as content and follow the progress over HTTP', async () => {
+  const api = createHarness()
+  const created = await api.state('POST', '/tasks', {
+    title: '线代作业', progress: { current: 0, total: 30 },
+    checkpoints: [{ label: '第一章', at: 10 }, { label: '第二章', at: 20 }],
+  })
+  const id = (created.entry as { id: string }).id
+  const entryOf = (body: Record<string, unknown>): Record<string, unknown> =>
+    (body.tasks as Record<string, unknown>[]).find(task => task.id === id) as Record<string, unknown>
+
+  const stored = created.entry as {
+    checkpoints: { id: string; label: string; at: number; reachedAt?: string }[]
+  }
+  assert.equal(stored.checkpoints.length, 2, 'the wire sent content; the host assigned the ids')
+  assert.ok(stored.checkpoints.every(checkpoint => checkpoint.id), 'no id is ever the caller\'s to choose')
+
+  const crossed = await api.state('PATCH', '/tasks', { id, patch: { progress: { current: 12 } } })
+  const checkpoints = entryOf(crossed).checkpoints as { label: string; reachedAt?: string }[]
+  assert.equal(typeof checkpoints.find(c => c.label === '第一章')!.reachedAt, 'string', 'crossing stamps the instant')
+  assert.equal(checkpoints.find(c => c.label === '第二章')!.reachedAt, undefined, 'the stage ahead keeps nothing')
+
+  const refused = await api.call('PATCH', '/tasks', { id, patch: { progress: { total: null } } })
+  assert.equal(refused.status, 400, 'clearing the axis under the stages')
+  assert.equal((refused.body as ErrorBody).error.code, 'habit/task-checkpoints-need-total')
+
+  const emptied = await api.state('PATCH', '/tasks', { id, patch: { checkpoints: [] } })
+  assert.deepEqual(entryOf(emptied).checkpoints, [], 'an emptied list is the "remove them all"')
+  const after = await api.call('PATCH', '/tasks', { id, patch: { progress: { total: null } } })
+  assert.equal(after.status, 200, 'with the stages gone, the total may go too')
+})
+
 // --- backup ------------------------------------------------------------------
 
 await checkAsync('an unreadable backup is refused whole and writes nothing', async () => {

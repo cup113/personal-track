@@ -439,17 +439,32 @@ export const handlers: Record<RouteName, RouteHandler> = {
   // --- tasks ---------------------------------------------------------------
 
   async addTask(ctx, body) {
-    const raw = ctx.parse(taskRecord.omit({ id: true, createdAt: true }).partial({
+    // Checkpoints travel as content only (`label` + `at`); ids are storage's
+    // business, so this half assigns them before the record is parsed.
+    const checkpointInput = z.object({
+      label: z.string().min(1),
+      at: z.number().int().positive(),
+    })
+    const raw = ctx.parse(taskRecord.omit({ id: true, createdAt: true, checkpoints: true }).partial({
       progress: true, title: true,
-    }).extend({ title: z.string().min(1) }), body, 'task')
-    const record = taskRecord.parse({ ...raw, id: ctx.store.newId(), createdAt: ctx.iso() })
+    }).extend({
+      title: z.string().min(1),
+      checkpoints: z.array(checkpointInput).optional(),
+    }), body, 'task')
+    const record = taskRecord.parse({
+      ...raw,
+      id: ctx.store.newId(),
+      createdAt: ctx.iso(),
+      checkpoints: (raw.checkpoints ?? []).map(line => ({ ...line, id: ctx.store.newId() })),
+    })
     await ctx.store.putTask(record)
     return { ok: true, tasks: ctx.store.view(ctx.today(), ctx.today()).tasks, entry: record }
   },
 
   async patchTask(ctx, body) {
     const outer = ctx.parse(z.object({ id: z.string().min(1), patch: z.unknown() }), body, 'task patch')
-    // `null` clears an optional field; `progress` merges field by field.
+    // `null` clears an optional field; `progress` merges field by field. A
+    // checkpoint list replaces wholesale (an empty list clears them all).
     const patch = ctx.parse(z.object({
       title: z.string().min(1).optional(),
       category: z.string().nullable().optional(),
@@ -458,6 +473,10 @@ export const handlers: Record<RouteName, RouteHandler> = {
         current: z.number().int().nonnegative().optional(),
         total: z.number().int().positive().nullable().optional(),
       }).optional(),
+      checkpoints: z.array(z.object({
+        label: z.string().min(1),
+        at: z.number().int().positive(),
+      })).optional(),
       notes: z.string().nullable().optional(),
     }), outer.patch, 'task patch')
     const entry = await ctx.store.patchTask(outer.id, patch)

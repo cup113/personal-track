@@ -11,6 +11,7 @@
  * Reads therefore never create documents; only a mutation materializes one.
  */
 import { randomUUID } from 'node:crypto'
+import { ApiError } from './api-error.ts'
 import { clockOf, type Config, type VocabTarget } from './config.ts'
 import type {
   CounterRecord,
@@ -143,6 +144,48 @@ function withoutCleared(record: Record<string, unknown>): Record<string, unknown
     if (value !== null) next[key] = value
   }
   return next
+}
+
+/**
+ * Keep every checkpoint's `reachedAt` in step with the progress: crossing a
+ * threshold stamps the instant, dropping back below it clears the fact, and
+ * crossing again re-stamps — the same rule `completedAt` follows. A patch that
+ * jumps over several thresholds stamps them all with the same instant, which
+ * is honest: one write crossed them.
+ */
+function syncCheckpoints(task: TaskRecord, now: () => Date): TaskRecord {
+  if (task.checkpoints.length === 0) return task
+  const current = task.progress.current
+  let changed = false
+  const checkpoints = task.checkpoints.map((checkpoint) => {
+    if (current >= checkpoint.at && checkpoint.reachedAt === undefined) {
+      changed = true
+      return { ...checkpoint, reachedAt: now().toISOString() }
+    }
+    if (current < checkpoint.at && checkpoint.reachedAt !== undefined) {
+      changed = true
+      const { reachedAt: _cleared, ...rest } = checkpoint
+      return rest
+    }
+    return checkpoint
+  })
+  return changed ? { ...task, checkpoints } : task
+}
+
+/**
+ * Checkpoints sit on the progress axis, which only a total gives a task — a
+ * checkbox task has no stages to mark. Enforced on every write path so an
+ * orphaned checkpoint cannot enter storage (nor, via the same rule, a backup
+ * file).
+ */
+function assertCheckpointsFit(task: TaskRecord): void {
+  if (task.checkpoints.length > 0 && task.progress.total === undefined) {
+    throw new ApiError(
+      400,
+      'habit/task-checkpoints-need-total',
+      'a task with checkpoints needs a progress total',
+    )
+  }
 }
 
 /** Build the store over an opened domain. */
@@ -359,7 +402,15 @@ export function createHabitStore(domain: HabitDomain, config: Config): HabitStor
 
     deleteMedia: id => media.delete(id),
 
-    putTask: record => tasks.put(record.id, record),
+    putTask: async input => {
+      // Parsed here rather than trusted: callers hand over a record they
+      // built, and the schema is where a task's defaults (empty checkpoints,
+      // zero progress) come from — the same treatment `patchTask` gives its
+      // merge result.
+      const record = taskRecord.parse(input)
+      assertCheckpointsFit(record)
+      await tasks.put(record.id, syncCheckpoints(record, now))
+    },
 
     patchTask: (id, patch) => tasks.update(id, (current) => {
       const merged: Record<string, unknown> = { ...current, ...patch, id }
@@ -370,18 +421,32 @@ export function createHabitStore(domain: HabitDomain, config: Config): HabitStor
           ...(patch.progress as Record<string, unknown>),
         })
       }
+      // A checkpoint's identity to the user is its content — `label` plus
+      // `at` — so the wire carries no ids: a line that still exists keeps its
+      // id and its reached fact, and a changed or new line starts fresh.
+      if (Array.isArray(patch.checkpoints)) {
+        merged.checkpoints = (patch.checkpoints as { label: string; at: number }[]).map((line) => {
+          const before = current.checkpoints.find(
+            checkpoint => checkpoint.label === line.label && checkpoint.at === line.at,
+          )
+          return before === undefined
+            ? { ...line, id: randomUUID() }
+            : { ...line, id: before.id, reachedAt: before.reachedAt }
+        })
+      }
       const parsed = taskRecord.parse(withoutCleared(merged))
+      assertCheckpointsFit(parsed)
       // Completion is derived from progress, so the instant it happened is kept
       // in step here rather than trusted from every caller.
-      const done = taskState(parsed) === 'done'
-      if (done && parsed.completedAt === undefined) {
-        return { ...parsed, completedAt: now().toISOString() }
+      let task: TaskRecord = parsed
+      const done = taskState(task) === 'done'
+      if (done && task.completedAt === undefined) {
+        task = { ...task, completedAt: now().toISOString() }
+      } else if (!done && task.completedAt !== undefined) {
+        const { completedAt: _cleared, ...rest } = task
+        task = rest
       }
-      if (!done && parsed.completedAt !== undefined) {
-        const { completedAt: _cleared, ...rest } = parsed
-        return rest
-      }
-      return parsed
+      return syncCheckpoints(task, now)
     }),
 
     deleteTask: id => tasks.delete(id),

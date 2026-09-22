@@ -14,7 +14,7 @@ import type { MediaInput, MediaPatch, TaskInput, TaskPatch } from '../api.ts'
 import type { MediaEntry, TaskEntry } from '../types.ts'
 import { IDLE, editor, isAdding, isEditing, type EditorAction, type EditorState } from './editor-state.ts'
 import { FieldForm, type FieldSpec } from './fields.tsx'
-import { dueLevelOf, fractionText, mediaStatusLabel, percentOf, timeOf, weekEndKey } from './format.ts'
+import { dueLevelOf, fractionText, formatCheckpoints, mediaStatusLabel, parseCheckpoints, percentOf, timeOf, weekEndKey } from './format.ts'
 import { IconButton, Tile, TileHead } from './tile.tsx'
 
 /** Which editor, if any, is open. Shared with every other list on the board. */
@@ -60,6 +60,7 @@ const TASK_FIELDS: readonly FieldSpec[] = [
   { name: 'due', label: '截止', kind: 'date', optional: true },
   { name: 'current', label: '当前', kind: 'number', min: 0, optional: true },
   { name: 'total', label: '目标量', kind: 'number', min: 1, optional: true },
+  { name: 'checkpoints', label: '检查点', kind: 'textarea', optional: true, placeholder: '每行一个：第一章@10', wide: true },
   { name: 'notes', label: '备注', kind: 'text', optional: true },
 ]
 
@@ -101,17 +102,40 @@ function mediaPatch(payload: Record<string, unknown>, original: MediaEntry): Med
   return patch as MediaPatch
 }
 
+/**
+ * The one rule the task form must check across fields: checkpoints point into
+ * the progress axis, so a target amount must be there for them to sit inside,
+ * and none may sit past it. Clearing the total while keeping checkpoints is
+ * the same fault — hence the payload's own `total`, never the record's.
+ */
+function taskFormProblem(payload: Record<string, unknown>): string | undefined {
+  const text = typeof payload.checkpoints === 'string' ? payload.checkpoints : ''
+  if (text.trim() === '') return undefined
+  const { list, problem } = parseCheckpoints(text)
+  if (problem !== undefined) return problem
+  if (typeof payload.total !== 'number') return '检查点需要目标量'
+  const total = payload.total
+  const beyond = list.find(checkpoint => checkpoint.at > total)
+  return beyond === undefined
+    ? undefined
+    : `检查点「${beyond.label}」的位置 ${beyond.at} 超过目标量 ${total}`
+}
+
 /** A payload for a new task; empty optional fields are omitted. */
 function taskInput(payload: Record<string, unknown>): TaskInput {
   const progress: { current?: number; total?: number } = {}
   if (typeof payload.current === 'number') progress.current = payload.current
   if (typeof payload.total === 'number') progress.total = payload.total
+  const checkpoints = parseCheckpoints(
+    typeof payload.checkpoints === 'string' ? payload.checkpoints : '',
+  ).list
   return {
     title: String(payload.title ?? ''),
     ...(typeof payload.category === 'string' ? { category: payload.category } : {}),
     ...(typeof payload.due === 'string' ? { due: payload.due } : {}),
     ...(typeof payload.notes === 'string' ? { notes: payload.notes } : {}),
     ...(Object.keys(progress).length === 0 ? {} : { progress }),
+    ...(checkpoints.length === 0 ? {} : { checkpoints }),
   }
 }
 
@@ -129,6 +153,11 @@ function taskPatch(payload: Record<string, unknown>, original: TaskEntry): TaskP
   if (typeof payload.total === 'number') progress.total = payload.total
   else if (original.progress.total !== undefined) progress.total = null
   if (Object.keys(progress).length > 0) patch.progress = progress
+  // The field is always in the task form, so an emptied textarea *is* the
+  // "remove them all" — an empty list is sent, not an absent key.
+  patch.checkpoints = parseCheckpoints(
+    typeof payload.checkpoints === 'string' ? payload.checkpoints : '',
+  ).list
   return patch as TaskPatch
 }
 
@@ -312,6 +341,11 @@ function barTitle(entry: TaskEntry, dragging: boolean): string {
     const date = entry.completedAt.slice(0, 10)
     parts.push(`完成于 ${date.slice(5)} ${timeOf(entry.completedAt)}`)
   }
+  for (const checkpoint of [...entry.checkpoints].sort((a, b) => a.at - b.at)) {
+    parts.push(checkpoint.reachedAt === undefined
+      ? `${checkpoint.label}@${checkpoint.at} 未到`
+      : `${checkpoint.label}@${checkpoint.at} 已到 ${checkpoint.reachedAt.slice(5, 10)} ${timeOf(checkpoint.reachedAt)}`)
+  }
   parts.push(dragging ? '松开写入进度' : quantized ? '拖动或 ←/→ 调整进度' : '点击切换完成，←/→ 也可')
   return parts.join(' · ')
 }
@@ -346,6 +380,9 @@ function TaskRow({ entry, today, busy, onPatch, onEdit, onRemove }: {
   // `progress.current` (what the host last accepted).
   const shown = drag === null ? entry.progress.current : barValue(entry, drag)
   const commit = (next: number): void => onPatch({ progress: { current: next } })
+  // Stages in axis order; "reached" follows the live reading, so a thumb
+  // sliding past a stage lights it before the write ever happens.
+  const stages = [...entry.checkpoints].sort((a, b) => a.at - b.at)
   // The count's box: wide enough for the widest reading this task can print
   // (`10/10` and up), so a drag never re-layouts the row under the pointer.
   const countWidth = Math.max(5, fractionText(total ?? 0).length * 2 + 1)
@@ -426,6 +463,15 @@ function TaskRow({ entry, today, busy, onPatch, onEdit, onRemove }: {
           {quantized
             ? <span className="pt-task-thumb" style={{ left: `${percentOf(ratio)}%` }} />
             : null}
+          {quantized
+            ? stages.map(stage => (
+              <span
+                key={stage.id}
+                className={shown >= stage.at ? 'pt-task-tick pt-task-tick-ok' : 'pt-task-tick'}
+                style={{ left: `${percentOf(Math.min(1, stage.at / (total ?? 1)))}%` }}
+              />
+            ))
+            : null}
         </button>
         {quantized
           ? (
@@ -481,8 +527,10 @@ export function TaskTile({ tasks, today, busy, onAdd, onPatch, onRemove }: TaskT
           due: task.due,
           current: task.progress.current,
           total: task.progress.total,
+          checkpoints: formatCheckpoints(task.checkpoints),
           notes: task.notes,
         }}
+        validate={taskFormProblem}
         submitLabel="保存"
         busy={busy}
         onSubmit={(payload) => {
@@ -531,6 +579,7 @@ export function TaskTile({ tasks, today, busy, onAdd, onPatch, onRemove }: TaskT
         ? (
           <FieldForm
             fields={newTaskFields(today)}
+            validate={taskFormProblem}
             submitLabel="新建"
             busy={busy}
             onSubmit={(payload) => {

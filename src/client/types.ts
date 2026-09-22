@@ -151,6 +151,21 @@ export interface MediaEntry {
 /** A task's lifecycle state, derived by the host from its progress. */
 export type TaskState = 'todo' | 'doing' | 'done'
 
+/**
+ * One named stage on a task's progress axis.
+ *
+ * Reached-ness is not in here: it is `progress.current >= at`, read off the
+ * entry the way every other derived value is.
+ */
+export interface TaskCheckpoint {
+  readonly id: string
+  readonly label: string
+  /** Position on the integer progress axis, in the task's counting unit. */
+  readonly at: number
+  /** Fact: when `current` first reached `at`; the host keeps it in step. */
+  readonly reachedAt?: string
+}
+
 /** One task entry: the record plus both states the host derives from it. */
 export interface TaskEntry {
   readonly id: string
@@ -158,6 +173,7 @@ export interface TaskEntry {
   readonly category?: string
   readonly due?: string
   readonly progress: { readonly current: number; readonly total?: number }
+  readonly checkpoints: readonly TaskCheckpoint[]
   readonly completedAt?: string
   readonly notes?: string
   readonly createdAt: string

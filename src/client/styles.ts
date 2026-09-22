@@ -228,6 +228,9 @@ const CSS = `
 }
 .pt-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px; padding: 2px 0 1px; }
 .pt-field { display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
+/* A field that lists several things (the checkpoints) takes the whole row. */
+.pt-field-wide { flex: 1 1 100%; }
+.pt-field-wide textarea { resize: vertical; min-height: 3em; line-height: 1.5; }
 .pt-form-actions { display: flex; gap: 5px; }
 
 /* ---- registry badges ------------------------------------------------- */
@@ -326,6 +329,20 @@ const CSS = `
 .pt-task-bar-active .pt-task-thumb {
   transform: translate(-50%, -50%) scale(1.15);
 }
+/*
+ * Checkpoint ticks: passive marks on the same rail the thumb rides. They
+ * stand a little proud of the track (overflow is visible for the thumb
+ * already) and never take the pointer — a drag crossing one must not land
+ * on it. A reached tick takes the accent; one still ahead stays faint.
+ */
+.pt-task-tick {
+  position: absolute; top: 50%; width: 2px; height: 12px;
+  transform: translate(-50%, -50%);
+  background: var(--pt-line-strong); opacity: .5;
+  border-radius: 1px; pointer-events: none;
+}
+.pt-task-tick-ok { background: rgba(64,146,98,1); opacity: 1; }
+.pt-task-late .pt-task-tick-ok { background: rgba(198,80,80,1); }
 
 /* ---- the archive: settled business, out of the way -------------------- */
 /*
