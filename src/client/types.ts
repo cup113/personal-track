@@ -82,6 +82,13 @@ export type PullupSession = {
   readonly seconds: number
 }
 
+/** A plank session (metric = hold time). */
+export type PlankSession = {
+  readonly id: string
+  readonly at: string
+  readonly seconds: number
+}
+
 /** A gym-equipment session. */
 export type EquipmentSession = {
   readonly id: string
@@ -108,6 +115,7 @@ export interface DayRecord {
   readonly duolingo: readonly Lesson[]
   readonly rope: readonly RopeSession[]
   readonly pullup: readonly PullupSession[]
+  readonly plank: readonly PlankSession[]
   readonly equipment: readonly EquipmentSession[]
   readonly run: {
     readonly at: string
@@ -305,10 +313,17 @@ export interface StatsView {
     readonly avgHr?: number
   }
   readonly pullup: { readonly sets: number; readonly seconds: number }
+  readonly plank: { readonly sets: number; readonly seconds: number }
   readonly equipment: {
     readonly sets: number
     readonly reps: number
-    readonly byName: readonly { readonly name: string; readonly sets: number; readonly reps: number }[]
+    /** One entry per (name, weight); a machine at another weight is another entry. */
+    readonly byName: readonly {
+      readonly name: string
+      readonly weight?: number
+      readonly sets: number
+      readonly reps: number
+    }[]
   }
   readonly washing: { readonly count: number; readonly pieces: number }
   readonly meals: {

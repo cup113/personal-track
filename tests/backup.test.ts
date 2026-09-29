@@ -23,7 +23,7 @@ const NEXT = '2026-09-17'
 /** Keys a stored habit day may carry. Anything else is a derived value leaked. */
 const DAY_FACT_KEYS = [
   'date', 'washes', 'shower', 'meals', 'vocab', 'duolingo', 'run',
-  'rope', 'pullup', 'equipment', 'washing',
+  'rope', 'pullup', 'plank', 'equipment', 'washing',
 ]
 
 /** Fill one day with a bit of everything, so an export has something to carry. */

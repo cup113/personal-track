@@ -152,6 +152,7 @@ check('an empty day parses into an empty, well-formed record', () => {
   assert.equal(empty.run, null)
   assert.deepEqual(empty.rope, [])
   assert.deepEqual(empty.pullup, [])
+  assert.deepEqual(empty.plank, [])
   assert.deepEqual(empty.equipment, [])
   assert.deepEqual(empty.washing, [])
 })

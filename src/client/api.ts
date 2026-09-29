@@ -53,7 +53,7 @@ export interface MealOptions {
 }
 
 /** Session-bearing habits (running is single-valued and handled apart). */
-export type SessionKind = 'vocab' | 'duolingo' | 'rope' | 'pullup' | 'equipment' | 'washing'
+export type SessionKind = 'vocab' | 'duolingo' | 'rope' | 'pullup' | 'plank' | 'equipment' | 'washing'
 
 /** The vocabulary target for one habit day. */
 export interface VocabTarget {

@@ -183,11 +183,12 @@ await checkAsync('every session kind lands in its own array and moves the derive
   await api.state('POST', '/session', { date: DATE, kind: 'duolingo', entry: { minutes: 12 } })
   await api.state('POST', '/session', { date: DATE, kind: 'rope', entry: { preset: 90, seconds: 45 } })
   await api.state('POST', '/session', { date: DATE, kind: 'pullup', entry: { seconds: 30 } })
+  await api.state('POST', '/session', { date: DATE, kind: 'plank', entry: { seconds: 60 } })
   await api.state('POST', '/session', { date: DATE, kind: 'equipment', entry: { name: '划船机', reps: 20, weight: 40 } })
 
   const state = await api.state('GET', `/state?date=${DATE}`)
   const day = state.day as { day: Record<string, unknown>; vocab: { ratio: number; met: boolean } }
-  for (const field of ['vocab', 'duolingo', 'rope', 'pullup', 'equipment']) {
+  for (const field of ['vocab', 'duolingo', 'rope', 'pullup', 'plank', 'equipment']) {
     assert.notEqual(day.day[field], undefined, `${field} should be recorded`)
   }
   assert.equal(day.vocab.ratio, 1, 'the vocab sessions satisfy the default target')

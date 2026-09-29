@@ -3,7 +3,8 @@
  * stored entry that can be edited in place (time and metrics) or deleted.
  *
  * Every session-bearing habit — vocabulary, duolingo, jump rope, pull-ups,
- * equipment — is this list plus a field description and a one-line summary, so
+ * plank, equipment — is this list plus a field description and a one-line
+ * summary, so
  * the editing behaviour is identical everywhere. The clock-time field is added
  * here, which is why every session can be retimed without extra code.
  */

@@ -275,10 +275,17 @@ export function StatsPanel({ client }: StatsPanelProps): JSX.Element {
                 ['组数', `${stats.pullup.sets}`],
                 ['支撑总时长', `${stats.pullup.seconds} 秒`],
               ]} />
+              <MetricCard title="平板支撑" rows={[
+                ['组数', `${stats.plank.sets}`],
+                ['支撑总时长', `${stats.plank.seconds} 秒`],
+              ]} />
               <MetricCard title="健身器材" rows={[
                 ['组数 / 动作数', `${stats.equipment.sets} / ${stats.equipment.reps}`],
                 ...stats.equipment.byName.slice(0, 3)
-                  .map(entry => [entry.name, `${entry.sets} 组 · ${entry.reps} 次`] as const),
+                  .map(entry => [
+                    entry.weight === undefined ? entry.name : `${entry.name} ${entry.weight}kg`,
+                    `${entry.sets} 组 · ${entry.reps} 次`,
+                  ] as const),
               ]} />
               <MetricCard title="洗衣" rows={[
                 ['洗涤次数', `${stats.washing.count}`],

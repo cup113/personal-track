@@ -43,6 +43,7 @@ await checkAsync('an empty range reports zeros rather than throwing', async () =
   assert.deepEqual(stats.runs, { count: 0, km: 0, points: [] })
   assert.deepEqual(stats.rope, { sets: 0, sets90: 0, sets180: 0, seconds: 0 })
   assert.deepEqual(stats.pullup, { sets: 0, seconds: 0 })
+  assert.deepEqual(stats.plank, { sets: 0, seconds: 0 })
   assert.deepEqual(stats.equipment, { sets: 0, reps: 0, byName: [] })
   assert.deepEqual(stats.washing, { count: 0, pieces: 0 })
   assert.deepEqual(stats.meals, { breakfast: { days: 0, ratio: 0 }, spend: 0 })
@@ -141,7 +142,7 @@ await checkAsync('washing up counts once against its two-a-day goal', async () =
   assert.equal(wash.ratio, 0.5)
 })
 
-await checkAsync('training sums split by preset, name and heart rate', async () => {
+await checkAsync('training sums split by preset, load and heart rate', async () => {
   const api = createHarness()
   await api.store.mutateDay(MON, day => ({
     ...day,
@@ -151,10 +152,13 @@ await checkAsync('training sums split by preset, name and heart rate', async () 
       { id: 'r2', at: 'x', preset: 180, seconds: 95, avgHr: 140 },
     ],
     pullup: [{ id: 'p1', at: 'x', seconds: 30 }, { id: 'p2', at: 'x', seconds: 20 }],
+    plank: [{ id: 'k1', at: 'x', seconds: 60 }, { id: 'k2', at: 'x', seconds: 45 }],
     equipment: [
       { id: 'e1', at: 'x', name: '划船机', reps: 10 },
       { id: 'e2', at: 'x', name: '划船机', reps: 15 },
       { id: 'e3', at: 'x', name: '卧推', reps: 30 },
+      { id: 'e4', at: 'x', name: '卧推', reps: 8, weight: 40 },
+      { id: 'e5', at: 'x', name: '卧推', reps: 6, weight: 50 },
     ],
   }))
   const stats = buildStats(api.store, MON, MON, boundaryOf(api.config))
@@ -164,12 +168,15 @@ await checkAsync('training sums split by preset, name and heart rate', async () 
   assert.deepEqual(stats.runs.points, [{ date: MON, pace: 6, avgHr: 150, km: 5, minutes: 30 }])
   assert.deepEqual(stats.rope, { sets: 2, sets90: 1, sets180: 1, seconds: 140, avgHr: 130 })
   assert.deepEqual(stats.pullup, { sets: 2, seconds: 50 })
-  assert.equal(stats.equipment.sets, 3)
-  assert.equal(stats.equipment.reps, 55)
+  assert.deepEqual(stats.plank, { sets: 2, seconds: 105 })
+  assert.equal(stats.equipment.sets, 5)
+  assert.equal(stats.equipment.reps, 69)
   assert.deepEqual(stats.equipment.byName, [
     { name: '划船机', sets: 2, reps: 25 },
     { name: '卧推', sets: 1, reps: 30 },
-  ].sort((a, b) => b.reps - a.reps), 'equipment is grouped by name and sorted by repetitions')
+    { name: '卧推', weight: 40, sets: 1, reps: 8 },
+    { name: '卧推', weight: 50, sets: 1, reps: 6 },
+  ].sort((a, b) => b.reps - a.reps), 'one machine at another weight is its own entry, never merged')
 })
 
 await checkAsync('the pace curve keeps one point per qualifying run, in range order', async () => {

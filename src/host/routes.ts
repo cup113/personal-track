@@ -85,6 +85,7 @@ const sessionSchemas = {
     avgHr: z.number().int().positive().optional(),
   }),
   pullup: z.object({ at: ISO.optional(), seconds: z.number().nonnegative() }),
+  plank: z.object({ at: ISO.optional(), seconds: z.number().nonnegative() }),
   equipment: z.object({
     at: ISO.optional(),
     name: z.string().min(1),

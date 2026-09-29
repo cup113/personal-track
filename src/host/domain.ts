@@ -82,6 +82,12 @@ export const dayRecord = z.object({
     at: z.string(),
     seconds: z.number().nonnegative(),
   })).default([]),
+  /** Repetitive sessions (plank, metric = hold time). */
+  plank: z.array(z.object({
+    id: sessionId,
+    at: z.string(),
+    seconds: z.number().nonnegative(),
+  })).default([]),
   /** Repetitive sessions (gym equipment). */
   equipment: z.array(z.object({
     id: sessionId,

@@ -161,8 +161,21 @@ const reportState: StateView = {
       },
       duolingo: [{ id: 'd1', at: '2026-09-20T09:00:00', minutes: 25 }],
       rope: [{ id: 'r1', at: '2026-09-20T10:00:00', preset: 90, seconds: 60 }],
-      pullup: [],
-      equipment: [],
+      pullup: [
+        { id: 'u1', at: '2026-09-20T10:20:00', seconds: 40 },
+        { id: 'u2', at: '2026-09-20T10:25:00', seconds: 35 },
+        { id: 'u3', at: '2026-09-20T10:30:00', seconds: 30 },
+      ],
+      plank: [
+        { id: 'k1', at: '2026-09-20T10:40:00', seconds: 60 },
+        { id: 'k2', at: '2026-09-20T10:45:00', seconds: 45 },
+      ],
+      equipment: [
+        { id: 'g1', at: '2026-09-20T11:00:00', name: '卧推', reps: 10, weight: 40 },
+        { id: 'g2', at: '2026-09-20T11:05:00', name: '卧推', reps: 8, weight: 40 },
+        { id: 'g3', at: '2026-09-20T11:10:00', name: '卧推', reps: 6, weight: 50 },
+        { id: 'g4', at: '2026-09-20T11:15:00', name: '深蹲', reps: 12 },
+      ],
       run: { at: '2026-09-20T18:00:00', minutes: 30, distanceKm: 5, avgHr: 156 },
       washing: [],
     },
@@ -178,9 +191,10 @@ const reportState: StateView = {
   stock: { pending: 4, updatedAt: '2026-09-19T12:00:00' },
   media: [],
   tasks: [
+    { id: 't3', title: '交房租', due: '2026-09-15', progress: { current: 0 }, checkpoints: [], createdAt: '2026-09-10T10:00:00', state: 'todo', overdue: true },
     { id: 't1', title: '英语口语', category: '英听说 A', due: '2026-09-20', progress: { current: 2, total: 5 }, checkpoints: [], createdAt: '2026-09-18T10:00:00', state: 'doing', overdue: false },
     { id: 't2', title: '高数作业', due: '2026-09-24', progress: { current: 0, total: 1 }, checkpoints: [], createdAt: '2026-09-19T10:00:00', state: 'todo', overdue: false },
-    { id: 't3', title: '交房租', due: '2026-09-15', progress: { current: 0 }, checkpoints: [], createdAt: '2026-09-10T10:00:00', state: 'todo', overdue: true },
+    { id: 't4', title: '读书笔记', due: '2026-09-20', progress: { current: 3, total: 3 }, checkpoints: [], createdAt: '2026-09-17T10:00:00', state: 'done', completedAt: '2026-09-20T21:00:00', overdue: false },
   ],
 }
 const reportText = dayReport(reportState, reportClock)
@@ -190,18 +204,27 @@ check('the header names the day (or the night tail) and the completion figure', 
   const nightClock = { ...reportClock, nightTail: true }
   assert.ok(dayReport(reportState, nightClock).includes('9月20日 周日夜'))
 })
-check('each group is one line, and only the groups with something to say', () => {
+check('each group is one line, with the details it used to drop', () => {
   assert.ok(reportText.includes('洗漱 2/2 · 洗澡 ✓ · 待洗 4 件'))
-  assert.ok(reportText.includes('三餐 2/3（¥36.5）'))
+  assert.ok(reportText.includes('三餐 早 ¥12 · 午 ¥24.5 · 晚 —（共 ¥36.5）'), 'every slot is named, missing one included')
   assert.ok(reportText.includes('背单词 55%（新 5/20 · 复 30/60 · 45 分） · 多邻国 1 节 25 分'))
   assert.ok(reportText.includes(`跑步 5km 30 分 6'00"/km ♥156`))
   assert.ok(reportText.includes('跳绳 1 组（90×1）'))
+  assert.ok(reportText.includes('引体 3 组（40+35+30 秒）'), 'every set shows its own support time')
+  assert.ok(reportText.includes('平板 2 组（60+45 秒）'), 'every hold shows its own seconds')
+  assert.ok(
+    reportText.includes('器材 卧推 40kg 2 组 18 次 · 卧推 50kg 1 组 6 次 · 深蹲 1 组 12 次'),
+    'the weight is kept, and only an identical load merges',
+  )
 })
-check('tasks: the ones due that day are listed, the rest only as an overdue count', () => {
-  assert.ok(reportText.includes('任务：英语口语（英听说 A） 2/5；另有逾期 1'), reportText)
-  assert.ok(!reportText.includes('高数作业'), 'a task due later is not this day\'s line')
+check('tasks: every unfinished task is named, and finished ones are not', () => {
+  assert.ok(
+    reportText.includes('剩余任务：交房租（逾期）；英语口语（英听说 A） 2/5；高数作业 0/1（9-24）'),
+    reportText,
+  )
+  assert.ok(!reportText.includes('读书笔记'), 'a finished task is not remaining')
 })
-check('an empty day still reports its zeros, and drops the empty groups', () => {
+check('an empty day still reports its zeros, and keeps every group line', () => {
   const empty: StateView = {
     ...reportState,
     day: {
@@ -218,8 +241,10 @@ check('an empty day still reports its zeros, and drops the empty groups', () => 
   const bare = dayReport(empty, reportClock)
   assert.ok(bare.includes('完成 0/8（0%）'))
   assert.ok(bare.includes('洗漱 0/2 · 洗澡 —'))
-  assert.ok(!bare.includes('跑步'), 'no training, no fitness line')
-  assert.ok(!bare.includes('任务：'), 'no tasks due, no task line')
+  assert.ok(bare.includes('三餐 早 — · 午 — · 晚 —'), 'the slots are named even when empty')
+  assert.ok(bare.includes('健身 —'), 'a rest day keeps its line instead of vanishing')
+  assert.ok(!bare.includes('跑步'))
+  assert.ok(!bare.includes('剩余任务'), 'nothing open, no remaining-task line')
 })
 
 console.log('checkpoint lines (a task\'s stages in the editor)')

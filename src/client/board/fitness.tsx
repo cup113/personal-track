@@ -1,9 +1,10 @@
 /**
  * The training tiles: running (single-valued, with derived pace), jump rope
- * (fixed-count sets), pull-ups (support time) and gym equipment.
+ * (fixed-count sets), pull-ups (support time), plank (hold time) and gym
+ * equipment.
  */
 import { useState, type JSX } from 'react'
-import type { EquipmentSession, PullupSession, RopeSession } from '../types.ts'
+import type { EquipmentSession, PlankSession, PullupSession, RopeSession } from '../types.ts'
 import { FieldForm, type FieldSpec } from './fields.tsx'
 import { paceLabel, paceOf, timeField, timeOf, timeValueOf } from './format.ts'
 import { SessionTile, type SessionEntry } from './session-cards.tsx'
@@ -36,6 +37,11 @@ const ROPE_FIELDS: readonly FieldSpec[] = [
 /** Fields for one pull-up set. */
 const PULLUP_FIELDS: readonly FieldSpec[] = [
   { name: 'seconds', label: '支撑(秒)', kind: 'number', min: 0 },
+]
+
+/** Fields for one plank hold. */
+const PLANK_FIELDS: readonly FieldSpec[] = [
+  { name: 'seconds', label: '秒数', kind: 'number', min: 0 },
 ]
 
 /** Fields for one equipment set. */
@@ -148,6 +154,22 @@ export function PullupCard({ sessions, ...handlers }: SessionHandlers & { readon
       entries={sessions as readonly SessionEntry[]}
       fields={PULLUP_FIELDS}
       summarize={entry => `支撑 ${Number(entry.seconds)}s · ${timeOf(String(entry.at ?? ''))}`}
+      addLabel="加一组"
+      emptyLabel="无记录"
+      {...handlers}
+    />
+  )
+}
+
+/** Plank: hold time per set. */
+export function PlankCard({ sessions, ...handlers }: SessionHandlers & { readonly sessions: readonly PlankSession[] }): JSX.Element {
+  return (
+    <SessionTile
+      label="平板支撑"
+      title="组数"
+      entries={sessions as readonly SessionEntry[]}
+      fields={PLANK_FIELDS}
+      summarize={entry => `${Number(entry.seconds)}s · ${timeOf(String(entry.at ?? ''))}`}
       addLabel="加一组"
       emptyLabel="无记录"
       {...handlers}

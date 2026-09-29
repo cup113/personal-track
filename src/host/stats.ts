@@ -84,10 +84,18 @@ export interface StatsView {
     readonly avgHr?: number
   }
   readonly pullup: { readonly sets: number; readonly seconds: number }
+  readonly plank: { readonly sets: number; readonly seconds: number }
   readonly equipment: {
     readonly sets: number
     readonly reps: number
-    readonly byName: readonly { readonly name: string; readonly sets: number; readonly reps: number }[]
+    /** One entry per (name, weight) — the same load is the only thing that
+     *  merges; the same machine at another weight is another line of work. */
+    readonly byName: readonly {
+      readonly name: string
+      readonly weight?: number
+      readonly sets: number
+      readonly reps: number
+    }[]
   }
   readonly washing: { readonly count: number; readonly pieces: number }
   readonly meals: {
@@ -215,7 +223,9 @@ export function buildStats(
   let ropeSeconds = 0
   let pullupSets = 0
   let pullupSeconds = 0
-  const equipmentByName = new Map<string, { sets: number; reps: number }>()
+  let plankSets = 0
+  let plankSeconds = 0
+  const equipmentByLoad = new Map<string, { name: string; weight?: number; sets: number; reps: number }>()
   let washingCount = 0
   let washingPieces = 0
   for (const key of keys) {
@@ -244,11 +254,16 @@ export function buildStats(
     }
     pullupSets += day.pullup.length
     for (const set of day.pullup) pullupSeconds += set.seconds
+    plankSets += day.plank.length
+    for (const set of day.plank) plankSeconds += set.seconds
     for (const set of day.equipment) {
-      const entry = equipmentByName.get(set.name) ?? { sets: 0, reps: 0 }
+      // Merged by (name, weight): two loads of the same machine at different
+      // weights are different work, so only an identical load is the same entry.
+      const key = `${set.name}\u0000${set.weight ?? ''}`
+      const entry = equipmentByLoad.get(key) ?? { name: set.name, weight: set.weight, sets: 0, reps: 0 }
       entry.sets += 1
       entry.reps += set.reps
-      equipmentByName.set(set.name, entry)
+      equipmentByLoad.set(key, entry)
     }
     washingCount += day.washing.length
     for (const wash of day.washing) washingPieces += wash.pieces
@@ -321,11 +336,17 @@ export function buildStats(
       ...(average(ropeHr) === undefined ? {} : { avgHr: Math.round(average(ropeHr) as number) }),
     },
     pullup: { sets: pullupSets, seconds: pullupSeconds },
+    plank: { sets: plankSets, seconds: plankSeconds },
     equipment: {
-      sets: [...equipmentByName.values()].reduce((sum, entry) => sum + entry.sets, 0),
-      reps: [...equipmentByName.values()].reduce((sum, entry) => sum + entry.reps, 0),
-      byName: [...equipmentByName.entries()]
-        .map(([name, entry]) => ({ name, sets: entry.sets, reps: entry.reps }))
+      sets: [...equipmentByLoad.values()].reduce((sum, entry) => sum + entry.sets, 0),
+      reps: [...equipmentByLoad.values()].reduce((sum, entry) => sum + entry.reps, 0),
+      byName: [...equipmentByLoad.values()]
+        .map(entry => ({
+          name: entry.name,
+          ...(entry.weight === undefined ? {} : { weight: entry.weight }),
+          sets: entry.sets,
+          reps: entry.reps,
+        }))
         .sort((a, b) => b.reps - a.reps),
     },
     washing: { count: washingCount, pieces: washingPieces },

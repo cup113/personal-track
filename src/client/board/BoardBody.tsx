@@ -23,7 +23,7 @@ import type { ClockView, StateView, VocabProgress } from '../types.ts'
 import { CheckTile, LaundryTile, MealBoard } from './cards.tsx'
 import { Chip } from './Chip.tsx'
 import { DateNav } from './DateNav.tsx'
-import { EquipmentCard, PullupCard, RopeCard, RunTile } from './fitness.tsx'
+import { EquipmentCard, PlankCard, PullupCard, RopeCard, RunTile } from './fitness.tsx'
 import { fractionText, messageOf } from './format.ts'
 import { MediaTile, TaskTile } from './registry.tsx'
 import { dayReport } from './report.ts'
@@ -257,6 +257,7 @@ export function BoardBody({ client, openStats }: BoardBodyProps): JSX.Element {
         />
         <RopeCard sessions={record?.rope ?? []} {...sessionHandlers('rope')} />
         <PullupCard sessions={record?.pullup ?? []} {...sessionHandlers('pullup')} />
+        <PlankCard sessions={record?.plank ?? []} {...sessionHandlers('plank')} />
         <EquipmentCard sessions={record?.equipment ?? []} {...sessionHandlers('equipment')} />
 
         <GroupHeader label="记录" />
