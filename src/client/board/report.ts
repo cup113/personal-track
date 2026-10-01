@@ -1,9 +1,9 @@
 /**
- * The day as plain text — what the 复制纯文本报告 button puts on the
- * clipboard.
+ * The day as Markdown — what the 复制纯文本报告 button puts on the clipboard.
  *
- * One line per board group (日常 / 饮食 / 学习 / 健身 / 任务), so a report
- * reads top to bottom the way the board does.
+ * One line per board group (日常 / 饮食 / 学习 / 健身), with 任务 closing the
+ * report as a Markdown list, so a report reads top to bottom the way the board
+ * does.
  *
  * **Completeness first**: the report is the whole day, not a digest of it, so
  * nothing the board shows is dropped for the sake of brevity. Every meal slot
@@ -16,11 +16,13 @@
  *
  * Tasks are the one cross-day registry that appears, and they appear as what is
  * still **remaining**: every unfinished task, whatever its deadline — the day
- * it is due, a later one, or none — each at its *current* progress. Finished
- * tasks are not remaining, so the line does not carry them.
+ * it is due, a later one, or none — each at its *current* progress and in the
+ * board's own order. Finished tasks are not remaining, so the list does not
+ * carry them.
  */
 import type { ClockView, EquipmentSession, Meal, StateView } from '../types.ts'
 import { dayLabelOf, fractionText, moneyOf, paceLabel, paceOf, percentOf } from './format.ts'
+import { byDeadline } from './task-order.ts'
 
 /** A report line; `null` when the group has nothing worth a line. */
 type Line = string | null
@@ -157,15 +159,17 @@ function dueMark(due: string): string {
 }
 
 /**
- * 任务: what is still remaining, at its current progress.
+ * 任务: what is still remaining, at its current progress — one Markdown list
+ * item each, so a long registry stays readable and pastes as a list rather than
+ * as one crammed line.
  *
  * Every unfinished task is named, whatever its deadline: one due today needs no
  * mark, one past its deadline reads（逾期）, a later one carries its date, and a
- * checkbox task carries none. The registry already orders them by deadline
- * (undated last), so the line reads most urgent first.
+ * checkbox task carries none. The order is the board's own (`./task-order.ts`),
+ * so the export reads top to bottom exactly as the tile does.
  */
-function taskLine(state: StateView, clock: ClockView): Line {
-  const open = state.tasks.filter(task => task.state !== 'done')
+function taskLines(state: StateView, clock: ClockView): Line {
+  const open = state.tasks.filter(task => task.state !== 'done').sort(byDeadline)
   if (open.length === 0) return null
   const items = open.map((task) => {
     const progress = task.progress.total === undefined
@@ -174,9 +178,11 @@ function taskLine(state: StateView, clock: ClockView): Line {
     const mark = task.overdue
       ? '（逾期）'
       : task.due !== undefined && task.due > clock.today ? `（${dueMark(task.due)}）` : ''
-    return `${task.title}${task.category === undefined ? '' : `（${task.category}）`}${progress}${mark}`
+    return `- ${task.title}${task.category === undefined ? '' : `（${task.category}）`}${progress}${mark}`
   })
-  return `剩余任务：${items.join('；')}`
+  // The blank line keeps the list a list in renderers that will not let one
+  // interrupt the paragraph above it.
+  return `剩余任务：\n\n${items.join('\n')}`
 }
 
 /** The whole report: a header, the completion figure, then one line per group. */
@@ -191,7 +197,7 @@ export function dayReport(state: StateView, clock: ClockView): string {
     mealsLine(state),
     studyLine(state),
     fitnessLine(state),
-    taskLine(state, clock),
+    taskLines(state, clock),
   ]
   return lines.filter(line => line !== null).join('\n')
 }

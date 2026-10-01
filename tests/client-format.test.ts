@@ -217,12 +217,39 @@ check('each group is one line, with the details it used to drop', () => {
     'the weight is kept, and only an identical load merges',
   )
 })
-check('tasks: every unfinished task is named, and finished ones are not', () => {
+check('tasks: every unfinished task is named, one Markdown list item each', () => {
   assert.ok(
-    reportText.includes('剩余任务：交房租（逾期）；英语口语（英听说 A） 2/5；高数作业 0/1（9-24）'),
+    reportText.includes('剩余任务：\n\n- 交房租（逾期）\n- 英语口语（英听说 A） 2/5\n- 高数作业 0/1（9-24）'),
     reportText,
   )
   assert.ok(!reportText.includes('读书笔记'), 'a finished task is not remaining')
+})
+check('the remaining-task list reads in the board\'s order: deadline ascending, undated last', () => {
+  // Handed over shuffled — what the report must not do is echo the arrival
+  // order, which is neither the tile's nor "most urgent first".
+  const shuffled: StateView = {
+    ...reportState,
+    tasks: [
+      { id: 't5', title: '修台灯', progress: { current: 0 }, checkpoints: [], createdAt: '2026-09-11T10:00:00', state: 'todo', overdue: false },
+      { id: 't2', title: '高数作业', due: '2026-09-24', progress: { current: 0, total: 1 }, checkpoints: [], createdAt: '2026-09-19T10:00:00', state: 'todo', overdue: false },
+      { id: 't4', title: '读书笔记', due: '2026-09-20', progress: { current: 3, total: 3 }, checkpoints: [], createdAt: '2026-09-17T10:00:00', state: 'done', completedAt: '2026-09-20T21:00:00', overdue: false },
+      { id: 't6', title: '买菜', progress: { current: 0 }, checkpoints: [], createdAt: '2026-09-19T18:00:00', state: 'todo', overdue: false },
+      { id: 't3', title: '交房租', due: '2026-09-15', progress: { current: 0 }, checkpoints: [], createdAt: '2026-09-10T10:00:00', state: 'todo', overdue: true },
+      { id: 't1', title: '英语口语', category: '英听说 A', due: '2026-09-20', progress: { current: 2, total: 5 }, checkpoints: [], createdAt: '2026-09-18T10:00:00', state: 'doing', overdue: false },
+    ],
+  }
+  const tail = dayReport(shuffled, reportClock).split('剩余任务：\n\n')[1]
+  assert.equal(
+    tail,
+    [
+      '- 交房租（逾期）',
+      '- 英语口语（英听说 A） 2/5',
+      '- 高数作业 0/1（9-24）',
+      '- 买菜',
+      '- 修台灯',
+    ].join('\n'),
+    'due soonest first, undated last (newest first among them)',
+  )
 })
 check('an empty day still reports its zeros, and keeps every group line', () => {
   const empty: StateView = {

@@ -15,6 +15,7 @@ import type { MediaEntry, TaskEntry } from '../types.ts'
 import { IDLE, editor, isAdding, isEditing, type EditorAction, type EditorState } from './editor-state.ts'
 import { FieldForm, type FieldSpec } from './fields.tsx'
 import { dueLevelOf, fractionText, formatCheckpoints, mediaStatusLabel, parseCheckpoints, percentOf, timeOf, weekEndKey } from './format.ts'
+import { byDeadline } from './task-order.ts'
 import { IconButton, Tile, TileHead } from './tile.tsx'
 
 /** Which editor, if any, is open. Shared with every other list on the board. */
@@ -277,22 +278,6 @@ export interface TaskTileProps {
   readonly onRemove: (id: string) => void
 }
 
-/**
- * Order: unfinished first, each group by deadline ascending, and whatever has
- * no deadline last. What is due soonest is what you must look at, and finished
- * items sink out of the way without disappearing.
- */
-function byDeadline(a: TaskEntry, b: TaskEntry): number {
-  const finished = (task: TaskEntry): number => (task.state === 'done' ? 1 : 0)
-  if (finished(a) !== finished(b)) return finished(a) - finished(b)
-  if (a.due === undefined || b.due === undefined) {
-    if (a.due !== b.due) return a.due === undefined ? 1 : -1
-    // Two undated tasks: newest first, as the list arrives.
-    return a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0
-  }
-  return a.due < b.due ? -1 : a.due > b.due ? 1 : 0
-}
-
 /** The deadline as the row shows it: "今天" when it is, else `MM-DD`. */
 function dueText(due: string, today: string): string {
   return due === today ? '今天' : due.slice(5)
@@ -505,7 +490,11 @@ function isArchived(task: TaskEntry, today: string): boolean {
   return task.state === 'done' && task.due !== undefined && task.due < today
 }
 
-/** Tasks and homework: due soonest first, with the derived state shown. */
+/**
+ * Tasks and homework: due soonest first, with the derived state shown. The
+ * order itself belongs to `./task-order.ts`, because the daily report reads the
+ * registry in it too.
+ */
 export function TaskTile({ tasks, today, busy, onAdd, onPatch, onRemove }: TaskTileProps): JSX.Element {
   const [mode, dispatch] = useEditor(tasks.map(task => task.id))
   const open = tasks.filter(task => task.state !== 'done').length
