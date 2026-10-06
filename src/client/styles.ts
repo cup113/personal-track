@@ -26,20 +26,31 @@ const CSS = `
   --pt-info-line: rgba(96,150,215,.45);
   font-size: 13px; line-height: 1.45;
 }
-.pt-board { display: flex; flex-direction: column; gap: 9px; padding: 10px 10px 26px; }
+.pt-board {
+  display: flex; flex-direction: column; gap: 9px; padding: 10px 10px 26px;
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+}
 /*
- * The main panel scrolls itself.
+ * Each surface owns its own scroll region.
  *
- * The shell's centre column is a flex column with overflow:hidden and provides
- * no scroller of its own — the occupant of the 'main' slot owns that region
- * (the Conversation scrolls inside itself the same way). The slot's anchor is
- * display:contents, so this element is laid out as a direct flex item of that
- * column. min-height:0 is the load-bearing part: a flex item's automatic
- * minimum size is its content, so without it the panel refuses to shrink and
- * simply overflows the clipping column, where overflow-y:auto never engages.
+ * The main panel: the shell's centre column is a flex column with
+ * overflow:hidden and provides no scroller of its own — the occupant of the
+ * 'main' slot owns that region (the Conversation scrolls inside itself the same
+ * way). The slot's anchor is display:contents, so this element is laid out as a
+ * direct flex item of that column. min-height:0 is the load-bearing part: a flex
+ * item's automatic minimum size is its content, so without it the panel refuses
+ * to shrink and simply overflows the clipping column, where overflow-y:auto
+ * never engages.
  *
- * The sidebar board needs none of this: a dock pane body is its own
- * overflow:auto scroller.
+ * The sidebar board: since 0.2.0-rc the right sidebar wraps every tab body in a
+ * fixed-height clipper (sidebar-right's ".tabBody": height:100%,
+ * overflow:hidden, a column flex container). The board is then a flex item of a
+ * box already exactly as tall as the pane, so its content is cut at the fold and
+ * the dock pane body's own overflow:auto never gains anything to scroll — the
+ * subtree ends up with no scroller at all. The same three properties make this
+ * element that scroller instead. Under 0.1.5-rc.2 the board's parent *was* the
+ * scrolling dock pane body, where they were inert, so this rule is correct under
+ * both shells.
  */
 .pt-panel {
   display: flex; flex-direction: column; gap: 12px; padding: 16px 18px 32px;

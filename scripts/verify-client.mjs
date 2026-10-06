@@ -138,27 +138,41 @@ assert.equal(panellist.spec.id, 'personal-track-stats')
 assert.equal(panellist.spec.label(), '习惯统计')
 assert.equal(typeof panellist.component, 'function', 'the sidebar entry has an icon component')
 
-// The main-area panel must own its scroll region: the shell's centre column
-// clips its overflow and scrolls nothing itself, so a panel that does not
-// scroll itself silently loses everything below the fold. Neither the type
-// checker nor a render-free test can notice that, hence this guard.
+// Both surfaces must own their scroll region.
+//
+// The main-area panel: the shell's centre column clips its overflow and scrolls
+// nothing itself, so a panel that does not scroll itself silently loses
+// everything below the fold.
+//
+// The sidebar board: since 0.2.0-rc the right sidebar wraps every tab body in a
+// fixed-height clipper (`sidebar-right`'s `.tabBody` — height:100%,
+// overflow:hidden, a column flex container), so the board is a flex item of a
+// box already exactly the pane's height. Its content is cut at the fold and the
+// dock pane body's own overflow:auto never gains anything to scroll: the whole
+// subtree ends up with no scroller at all. Under 0.1.5-rc.2 the board's parent
+// *was* that scrolling pane body, and the three properties below were inert —
+// which is why this reads as a regression rather than a layout choice.
+//
+// Neither the type checker nor a render-free test can notice either one, hence
+// these guards.
 const css = String(appended[0].textContent)
 // Comments mention these very properties and would otherwise join a selector.
 const bare = css.replace(/\/\*[\s\S]*?\*\//g, '')
 const bodiesFor = selector => [...bare.matchAll(/([^{}]+)\{([^}]*)\}/g)]
   .filter(([, list]) => list.split(',').map(part => part.trim()).includes(selector))
   .map(([, , body]) => body)
+const scrollsItself = body => /overflow-y:\s*auto/.test(body) && /min-height:\s*0/.test(body)
 const panelBodies = bodiesFor('.pt-panel')
 assert.ok(panelBodies.length > 0, 'the stylesheet declares .pt-panel')
 assert.ok(
-  panelBodies.some(body => /overflow-y:\s*auto/.test(body) && /min-height:\s*0/.test(body)),
+  panelBodies.some(scrollsItself),
   '.pt-panel scrolls itself (overflow-y:auto plus the min-height:0 that lets it shrink)',
 )
 const boardBodies = bodiesFor('.pt-board')
 assert.ok(boardBodies.length > 0, 'the stylesheet declares .pt-board')
 assert.ok(
-  boardBodies.every(body => !/overflow/.test(body)),
-  'the board leaves scrolling to its dock pane body',
+  boardBodies.some(scrollsItself),
+  '.pt-board scrolls itself (a sidebar tab body is a height:100%, overflow:hidden clipper, not a scroller)',
 )
 
 console.log('client bundle ✓  wrapper, exports, tab type, slot body, injection face and styles verified')
