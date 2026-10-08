@@ -16,7 +16,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { createHabitClient } from './api.ts'
-import { BoardBody } from './board/BoardBody.tsx'
+import { BoardBody, BoardIcon } from './board/BoardBody.tsx'
 import { StatsIcon, StatsPanel } from './board/stats-panel.tsx'
 import { ensureBoardStyles } from './styles.ts'
 
@@ -52,6 +52,8 @@ export function apply(ctx: Context): void {
       order: 10,
       title: () => '习惯看板',
       description: () => '每日习惯打卡',
+      // Without one the guide draws its cube placeholder.
+      icon: BoardIcon,
     }],
   }), 'personal-track: board tab type')
 

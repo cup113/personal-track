@@ -36,6 +36,44 @@ const EMPTY_VOCAB: VocabProgress = {
   minutes: 0, ratio: 0, surplusNew: 0, surplusReview: 0, met: false,
 }
 
+/**
+ * The board's own glyph: the completion ring it is built around, with the check
+ * inside.
+ *
+ * Hand-drawn inline SVG, the way `StatsIcon` is, and for the same reason: it
+ * carries no dependency. It eats `currentColor` only, so neither theme needs a
+ * colour of its own. `@deepseek-ai/dsh-client-ui-primitives` would have offered
+ * a ready-made outline glyph, but that package cannot load in Node (it wants
+ * `clsx`, which it does not declare, and it imports CSS modules), and
+ * `scripts/verify-client.mjs` really does materialize this bundle in Node.
+ */
+export function BoardIcon({ size = 16, className }: {
+  readonly size?: number
+  readonly className?: string
+}): JSX.Element {
+  // Same convention as the board's ProgressRing: rotate -90 so the dash starts at
+  // twelve o'clock and runs clockwise; r = 8.5 gives a 53.41 circumference, and
+  // `40.1 13.3` leaves the last quarter open — a ring three-quarters done.
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      className={className}
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="8.5" opacity={0.3} />
+      <circle cx="12" cy="12" r="8.5" strokeDasharray="40.1 13.3" transform="rotate(-90 12 12)" />
+      <path d="M8.6 12.3l2.4 2.4 4.4-4.9" />
+    </svg>
+  )
+}
+
 /** Props handed in by the slot registration's injection face. */
 export interface BoardBodyProps {
   readonly client: HabitClient

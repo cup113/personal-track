@@ -103,6 +103,20 @@ assert.equal(tabType.title('/'), '习惯看板')
 assert.equal(tabType.guide?.length, 1, 'the board offers one guide entry')
 assert.equal(typeof tabType.guide[0].title, 'function')
 
+// A guide entry with no glyph is not an error — the guide quietly draws its
+// cube placeholder — so only an assertion can notice one going missing.
+assert.equal(
+  typeof tabType.guide[0].icon,
+  'function',
+  'the guide entry carries a glyph, or the guide draws its cube placeholder',
+)
+// Really render it: a hook-free icon can be called in Node, which is what proves
+// it is an svg (not a wrapper) and honours the size the guide hands over
+// (26 with a description, 22 without).
+const glyph = tabType.guide[0].icon({ size: 26 })
+assert.equal(glyph.type, 'svg', 'the guide glyph renders an svg')
+assert.equal(glyph.props.width, 26, 'the glyph honours the size the guide passes')
+
 const registrationFor = name => seen.slotRegistrations.find(entry => entry.spec.name === name)
 
 const body = registrationFor('sidebar.right.pane.tab')
