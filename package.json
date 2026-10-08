@@ -26,6 +26,7 @@
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
+    "prepare": "node scripts/build.mjs",
     "watch": "node scripts/build.mjs --watch",
     "typecheck": "tsc -p tsconfig.host.json && tsc -p tsconfig.client.json && tsc -p tsconfig.tests.json",
     "verify": "pnpm build && node scripts/verify-client.mjs && node scripts/verify-host.mjs",

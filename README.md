@@ -89,17 +89,27 @@ DeepSeek Harness（DSH）插件：右侧栏的**每日习惯看板** + 主区域
 改到 `src/host/domain.ts` 就是改磁盘格式，别忘了那里的域 `version`。
 
 ```powershell
-# 持久安装（推荐）：pnpm link 到 web profile，需要重启一次
-dsh plugin --profile web add link:D:/Projects/personal-track
+# 方式 A —— 本机开发（推荐）：pnpm link 到 web profile，需要重启一次
+dsh plugin --profile web add link:D:/Projects/dsh-personal-track
 dsh --profile web --dump-config        # 应出现 "# == personal-track" 层
 # 然后重启：dsh --profile web
+
+# 方式 B —— 从 GitHub 装，不依赖本机路径：
+dsh plugin --profile web add github:cup113/personal-track
+# 仓库里只有源码，lib/ 靠 package.json 的 prepare 在安装时现场构建。
+# pnpm 11 默认拦下依赖的构建脚本，首次安装只会把它记进 profile 的
+# pnpm-workspace.yaml 等你批准：
+#   allowBuilds:
+#     personal-track: set this to true or false    ← 改成 true
+# 在 Plugins 页点批准（或直接改这个文件）之后**必须再装一次**，
+# 否则拿到的是没有 lib/ 的空壳，插件只会显示"未运行"。
 ```
 
 临时试用（不安装，改完即用）：
 
 ```powershell
 # --patch 是启动器级选项，必须写在 web 之前；写成 dsh web --patch … 会被转发给 web 应用并报错
-dsh --profile web --patch D:/Projects/personal-track/dev.patch.yml
+dsh --profile web --patch D:/Projects/dsh-personal-track/dev.patch.yml
 ```
 
 patch 行的两条对齐铁律：`name` 必须是包名（Loader 据此从 profile 的 `node_modules` 解析代码），
@@ -108,7 +118,7 @@ patch 行的两条对齐铁律：`name` 必须是包名（Loader 据此从 profi
 ## 开发
 
 ```powershell
-pnpm install
+pnpm install      # 装依赖；prepare 顺带跑一次 build（与下面等价）
 pnpm build        # 产出 lib/index.js（ESM）与 lib/client.js（浏览器闭包工厂）
 pnpm watch        # 只重建产物；客户端 bundle 改动会被宿主轮询到并热重载
 pnpm typecheck    # 三个独立程序（宿主 / 浏览器 / 测试）
