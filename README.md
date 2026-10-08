@@ -96,13 +96,15 @@ dsh --profile web --dump-config        # 应出现 "# == personal-track" 层
 
 # 方式 B —— 从 GitHub 装，不依赖本机路径：
 dsh plugin --profile web add github:cup113/personal-track
-# 仓库里只有源码，lib/ 靠 package.json 的 prepare 在安装时现场构建。
-# pnpm 11 默认拦下依赖的构建脚本，首次安装只会把它记进 profile 的
-# pnpm-workspace.yaml 等你批准：
+# 仓库里只有源码，lib/ 靠 package.json 的 prepare 在安装时现场构建；pnpm 11
+# 默认拦下依赖的构建脚本，首次安装会以 ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED
+# 失败，并把**精确键**（包名@解析后的 tarball URL）打印出来：
 #   allowBuilds:
-#     personal-track: set this to true or false    ← 改成 true
-# 在 Plugins 页点批准（或直接改这个文件）之后**必须再装一次**，
-# 否则拿到的是没有 lib/ 的空壳，插件只会显示"未运行"。
+#     personal-track@https://codeload.github.com/cup113/personal-track/tar.gz/<sha>: true
+# 把这一行原样抄进 profile 的 pnpm-workspace.yaml，再跑一次同样的 add 就装上了。
+# 裸包名（personal-track）不生效，personal-track@* 也会被拒（pnpm 只认精确
+# 版本）；键里带 commit sha，所以仓库每推一个新提交这个键就变，要重新批准一次
+# —— 本机开发请走方式 A：link 不打包、不触发这道审批。
 ```
 
 临时试用（不安装，改完即用）：
